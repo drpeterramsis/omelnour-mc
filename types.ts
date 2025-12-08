@@ -20,7 +20,6 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   permissions: Permissions;
-  password?: string; // For mock auth only
 }
 
 export interface Specialty {

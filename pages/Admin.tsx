@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
-import { User, Permissions } from '../types';
+import { User, Permissions, UserRole, DEFAULT_PERMISSIONS } from '../types';
 import { useLanguage } from '../App';
 
 export const Admin: React.FC = () => {
   const { t } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  
+  // Password Management State
+  const [newPassword, setNewPassword] = useState('');
+  const [isBulkResetOpen, setIsBulkResetOpen] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
+  const [bulkPassword, setBulkPassword] = useState('');
 
   const loadUsers = async () => {
       const data = await db.users.getAll();
@@ -15,6 +22,48 @@ export const Admin: React.FC = () => {
   useEffect(() => {
     loadUsers();
   }, []);
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    
+    // Update Profile
+    await db.users.update(editingUser);
+
+    // Update Password if provided
+    if (newPassword.trim()) {
+        try {
+            await db.users.resetPassword(editingUser.id, newPassword);
+            setResetMessage('Profile & Password updated successfully!');
+        } catch (error: any) {
+            console.error(error);
+            setResetMessage('Profile updated, but Password update failed. ensure you are an admin and SQL script is run.');
+        }
+    } else {
+        setResetMessage('Profile updated successfully!');
+    }
+
+    setNewPassword('');
+    await loadUsers();
+    
+    // Close modal after short delay if success, or immediately if just profile
+    setTimeout(() => {
+        if(!newPassword) setEditingUser(null); 
+    }, 1000);
+  };
+
+  const handleBulkReset = async () => {
+      if (!bulkPassword.trim() || !window.confirm("Are you sure? This will change the password for ALL users (except you).")) return;
+      try {
+          await db.users.resetAllPasswords(bulkPassword);
+          alert("Success! All user passwords have been reset.");
+          setIsBulkResetOpen(false);
+          setBulkPassword('');
+      } catch (error: any) {
+          console.error(error);
+          alert("Failed: " + error.message);
+      }
+  };
 
   const togglePermission = async (user: User, key: keyof Permissions) => {
     const updatedUser = {
@@ -26,6 +75,15 @@ export const Admin: React.FC = () => {
     };
     await db.users.update(updatedUser);
     await loadUsers();
+  };
+
+  const handleRoleChange = (role: UserRole) => {
+      if (!editingUser) return;
+      setEditingUser({
+          ...editingUser,
+          role: role,
+          permissions: DEFAULT_PERMISSIONS[role] // Reset permissions to default for that role
+      });
   };
 
   const getPermissionLabel = (key: keyof Permissions) => {
@@ -47,8 +105,20 @@ export const Admin: React.FC = () => {
 
   return (
     <div className="space-y-6 font-sans">
-       <h2 className="text-3xl font-bold text-gray-800 border-b pb-4">{t.adminControl}</h2>
-       <p className="text-gray-500">{t.adminDesc}</p>
+       <div className="flex justify-between items-center border-b pb-4">
+            <div>
+                <h2 className="text-3xl font-bold text-gray-800">{t.adminControl}</h2>
+                <p className="text-gray-500 mt-1">{t.adminDesc}</p>
+            </div>
+            <div className="flex gap-2">
+                <button 
+                    onClick={() => setIsBulkResetOpen(true)}
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm font-bold shadow-sm transition"
+                >
+                    ⚠️ {t.resetAllPasswords || "Reset All Passwords"}
+                </button>
+            </div>
+       </div>
 
        <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
          <table className="min-w-full divide-y divide-gray-200">
@@ -56,6 +126,7 @@ export const Admin: React.FC = () => {
              <tr>
                <th className="px-6 py-3 text-start text-xs font-bold text-gray-500 uppercase">{t.user}</th>
                <th className="px-6 py-3 text-start text-xs font-bold text-gray-500 uppercase">{t.role}</th>
+               <th className="px-6 py-3 text-start text-xs font-bold text-gray-500 uppercase">{t.actions}</th>
                {permissionKeys.map(key => (
                  <th key={key} className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase writing-mode-vertical rotate-180">
                     <span className="block w-24 truncate" title={getPermissionLabel(key)}>{getPermissionLabel(key)}</span>
@@ -65,13 +136,25 @@ export const Admin: React.FC = () => {
            </thead>
            <tbody className="bg-white divide-y divide-gray-200">
              {users.map(user => (
-               <tr key={user.id} className="hover:bg-gray-50">
+               <tr key={user.id} className={`hover:bg-gray-50 ${!user.is_active ? 'opacity-50 bg-gray-100' : ''}`}>
                  <td className="px-6 py-4 whitespace-nowrap">
-                   <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                   <div className="text-sm font-bold text-gray-900">{user.name}</div>
                    <div className="text-xs text-gray-500">{user.email}</div>
                  </td>
                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded-full">{user.role}</span>
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full 
+                        ${user.role === 'ADMIN' ? 'bg-purple-100 text-purple-800' : 
+                          user.role === 'DOCTOR' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {user.role}
+                    </span>
+                 </td>
+                 <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <button 
+                        onClick={() => { setEditingUser(user); setResetMessage(''); setNewPassword(''); }} 
+                        className="text-primary hover:text-blue-900 font-medium"
+                    >
+                        {t.activate} / {t.role} / PWD
+                    </button>
                  </td>
                  {permissionKeys.map(key => (
                    <td key={key} className="px-2 py-4 text-center">
@@ -89,6 +172,100 @@ export const Admin: React.FC = () => {
            </tbody>
          </table>
        </div>
+
+       {/* Edit User Modal */}
+       {editingUser && (
+         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+           <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md animate-fade-in-up">
+             <h3 className="text-2xl font-bold mb-6 text-gray-800">Edit User: {editingUser.email}</h3>
+             
+             {resetMessage && (
+                 <div className={`mb-4 p-3 rounded text-sm ${resetMessage.includes('failed') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                     {resetMessage}
+                 </div>
+             )}
+
+             <form onSubmit={handleUpdateUser} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t.patientName}</label>
+                  <input 
+                    type="text" 
+                    value={editingUser.name} 
+                    onChange={e => setEditingUser({...editingUser, name: e.target.value})}
+                    className="w-full border p-2 rounded focus:ring-2 focus:ring-primary outline-none"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t.role}</label>
+                  <select 
+                    value={editingUser.role} 
+                    onChange={e => handleRoleChange(e.target.value as UserRole)}
+                    className="w-full border p-2 rounded focus:ring-2 focus:ring-primary outline-none"
+                  >
+                    {Object.values(UserRole).map(role => (
+                        <option key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Password Reset Section inside Modal */}
+                <div className="p-4 bg-yellow-50 rounded border border-yellow-100">
+                    <label className="block text-sm font-bold text-yellow-800 mb-1">Reset Password</label>
+                    <input 
+                        type="text" 
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        placeholder="Type new password here..."
+                        className="w-full border p-2 rounded focus:ring-2 focus:ring-yellow-400 outline-none text-sm"
+                    />
+                    <p className="text-xs text-yellow-600 mt-1">Leave empty to keep current password.</p>
+                </div>
+
+                <div className="flex items-center gap-2 mt-4">
+                  <input 
+                    type="checkbox" 
+                    id="isActive"
+                    checked={editingUser.is_active}
+                    onChange={e => setEditingUser({...editingUser, is_active: e.target.checked})}
+                    className="h-4 w-4 text-primary"
+                  />
+                  <label htmlFor="isActive" className="text-sm font-medium">{t.active} Account</label>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-8">
+                  <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">{t.cancelBtn}</button>
+                  <button type="submit" className="px-4 py-2 bg-primary text-white rounded hover:bg-blue-700 font-bold">{t.create}</button>
+                </div>
+             </form>
+           </div>
+         </div>
+       )}
+
+       {/* Bulk Reset Modal */}
+       {isBulkResetOpen && (
+           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+               <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md animate-fade-in-down border-t-8 border-red-600">
+                   <h3 className="text-2xl font-bold mb-4 text-red-700">⚠️ Bulk Password Reset</h3>
+                   <p className="text-gray-600 mb-6 text-sm">
+                       This will set the same password for <b>ALL users</b> in the system (Doctors, Reception, etc.) except you. 
+                       <br/><br/>
+                       Use this only for initial setup or emergency resets.
+                   </p>
+                   <input 
+                        type="text"
+                        value={bulkPassword}
+                        onChange={e => setBulkPassword(e.target.value)}
+                        placeholder="Enter global password..."
+                        className="w-full border p-3 rounded mb-6 focus:ring-2 focus:ring-red-500 outline-none"
+                   />
+                   <div className="flex justify-end gap-3">
+                       <button onClick={() => setIsBulkResetOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
+                       <button onClick={handleBulkReset} className="px-4 py-2 bg-red-600 text-white rounded font-bold hover:bg-red-800">Reset All</button>
+                   </div>
+               </div>
+           </div>
+       )}
     </div>
   );
 };

@@ -8,20 +8,34 @@ import {
 export const db = {
   users: {
     getAll: async (): Promise<User[]> => {
-      const { data } = await supabase.from('profiles').select('*');
+      const { data } = await supabase.from('profiles').select('*').order('name');
       return (data as User[]) || [];
     },
     update: async (user: User) => {
       await supabase.from('profiles').update({
+        name: user.name,
         permissions: user.permissions,
         role: user.role,
         is_active: user.is_active
       }).eq('id', user.id);
     },
-    // Note: Creating a user usually requires Auth signup. 
-    // This helper is for the admin panel to insert a profile record if auth exists.
+    // Note: Creating a user profile should usually happen via Auth triggers or Dashboard
     create: async (user: User) => {
       await supabase.from('profiles').insert(user);
+    },
+    // RPC Calls for Password Reset
+    resetPassword: async (userId: string, newPass: string) => {
+      const { error } = await supabase.rpc('admin_reset_password', { 
+        target_user_id: userId, 
+        new_password: newPass 
+      });
+      if (error) throw error;
+    },
+    resetAllPasswords: async (newPass: string) => {
+      const { error } = await supabase.rpc('admin_reset_all_passwords', {
+        new_password: newPass
+      });
+      if (error) throw error;
     }
   },
   specialties: {
