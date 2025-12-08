@@ -4,6 +4,38 @@ import { supabase } from '../services/supabaseClient';
 import { User, Permissions, UserRole, DEFAULT_PERMISSIONS } from '../types';
 import { useLanguage, useAuth } from '../App';
 
+// SQL Script for user to fix missing RPCs
+const SQL_FIX_SCRIPT = `
+-- 1. Enable crypto extension
+create extension if not exists "pgcrypto";
+
+-- 2. Function to reset password (admin only)
+-- Security Definer allows it to run with higher privileges
+create or replace function admin_reset_password(target_user_id uuid, new_password text)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update auth.users
+  set encrypted_password = crypt(new_password, gen_salt('bf'))
+  where id = target_user_id;
+end;
+$$;
+
+-- 3. Function to reset all passwords
+create or replace function admin_reset_all_passwords(new_password text)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update auth.users
+  set encrypted_password = crypt(new_password, gen_salt('bf'));
+end;
+$$;
+`;
+
 export const Admin: React.FC = () => {
   const { t } = useLanguage();
   const { user: currentUser } = useAuth();
@@ -15,6 +47,9 @@ export const Admin: React.FC = () => {
   const [isBulkResetOpen, setIsBulkResetOpen] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
   const [bulkPassword, setBulkPassword] = useState('');
+  
+  // SQL Help Modal
+  const [showSqlHelp, setShowSqlHelp] = useState(false);
 
   const loadUsers = async () => {
       const data = await db.users.getAll();
@@ -30,34 +65,43 @@ export const Admin: React.FC = () => {
     if (!editingUser) return;
     
     try {
-        // Update Profile
+        // 1. Update Profile (Name, Role, Permissions)
         await db.users.update(editingUser);
+        let passwordMsg = '';
 
-        // Update Password if provided
+        // 2. Update Password if provided
         if (newPassword.trim()) {
+            let passwordUpdated = false;
+
+            // Attempt 1: Standard Auth Update (Only works for Self + Active Session)
             if (currentUser?.id === editingUser.id) {
-                // Check for active session first (handles Demo/Fallback mode)
                 const { data: { session } } = await supabase.auth.getSession();
-                
                 if (session) {
                     const { error } = await supabase.auth.updateUser({ password: newPassword });
                     if (error) throw error;
-                    setResetMessage('Profile & Password updated successfully!');
+                    passwordUpdated = true;
+                    passwordMsg = 'Password updated via Auth Session.';
                 } else {
-                    console.warn("No active Supabase session. Password update skipped.");
-                    setResetMessage('Profile updated. Password not changed (Demo/Fallback Mode).');
-                }
-            } else {
-                // If updating others, attempt RPC
-                try {
-                   await db.users.resetPassword(editingUser.id, newPassword);
-                   setResetMessage('Profile & Password updated successfully!');
-                } catch (rpcError: any) {
-                    console.error("RPC Error:", rpcError);
-                    // Graceful fallback if RPC is missing
-                    setResetMessage('Profile updated. Password reset skipped (Backend RPC missing).');
+                    console.warn("No active Supabase session. Attempting RPC fallback...");
                 }
             }
+
+            // Attempt 2: RPC Update (Works for Others OR Self in Fallback Mode)
+            if (!passwordUpdated) {
+                try {
+                   await db.users.resetPassword(editingUser.id, newPassword);
+                   passwordUpdated = true;
+                   passwordMsg = 'Password updated via Admin RPC.';
+                } catch (rpcError: any) {
+                    console.error("RPC Error:", rpcError);
+                    if (rpcError.message?.includes('function') || rpcError.message?.includes('found') || rpcError.code === 'PGRST202') {
+                        throw new Error(`Backend RPC missing. Please run the SQL setup.`);
+                    }
+                    throw rpcError;
+                }
+            }
+            
+            setResetMessage(`Profile & ${passwordMsg} Success!`);
         } else {
             setResetMessage('Profile updated successfully!');
         }
@@ -65,19 +109,23 @@ export const Admin: React.FC = () => {
         setNewPassword('');
         await loadUsers();
         
-        // Close modal after short delay if success, or immediately if just profile
+        // Close modal after short delay if success
         setTimeout(() => {
             if(!newPassword) setEditingUser(null); 
         }, 1500);
 
     } catch (error: any) {
         console.error(error);
-        setResetMessage(`Profile updated, but Password failed: ${error.message}`);
+        if (error.message.includes('RPC missing')) {
+            setResetMessage('Error: Backend functions missing. Click "Database Setup" above.');
+        } else {
+            setResetMessage(`Profile updated, but Password failed: ${error.message}`);
+        }
     }
   };
 
   const handleBulkReset = async () => {
-      if (!bulkPassword.trim() || !window.confirm("Are you sure? This will change the password for ALL users (except you).")) return;
+      if (!bulkPassword.trim() || !window.confirm("Are you sure? This will change the password for ALL users.")) return;
       try {
           await db.users.resetAllPasswords(bulkPassword);
           alert("Success! All user passwords have been reset.");
@@ -85,7 +133,7 @@ export const Admin: React.FC = () => {
           setBulkPassword('');
       } catch (error: any) {
           console.error(error);
-          alert("Failed: " + error.message);
+          alert("Failed: " + error.message + " (Check Database Setup)");
       }
   };
 
@@ -127,11 +175,10 @@ export const Admin: React.FC = () => {
       'can_manage_exceptions', 'can_manage_clinics', 'can_view_admin_panel'
   ];
 
-  // Helper to determine message color
   const getMessageColor = (msg: string) => {
       const lower = msg.toLowerCase();
-      if (lower.includes('failed') || lower.includes('error')) return 'bg-red-100 text-red-800';
-      if (lower.includes('skipped') || lower.includes('demo') || lower.includes('rpc')) return 'bg-yellow-100 text-yellow-800';
+      if (lower.includes('failed') || lower.includes('error') || lower.includes('missing')) return 'bg-red-100 text-red-800';
+      if (lower.includes('skipped') || lower.includes('demo')) return 'bg-yellow-100 text-yellow-800';
       return 'bg-green-100 text-green-800';
   };
 
@@ -143,6 +190,12 @@ export const Admin: React.FC = () => {
                 <p className="text-gray-500 mt-1">{t.adminDesc}</p>
             </div>
             <div className="flex gap-2">
+                <button 
+                    onClick={() => setShowSqlHelp(true)}
+                    className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded text-sm font-bold shadow-sm transition flex items-center gap-2"
+                >
+                    🛠️ Database Setup
+                </button>
                 <button 
                     onClick={() => setIsBulkResetOpen(true)}
                     className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm font-bold shadow-sm transition"
@@ -241,7 +294,7 @@ export const Admin: React.FC = () => {
                   </select>
                 </div>
                 
-                {/* Password Reset Section inside Modal */}
+                {/* Password Reset Section */}
                 <div className="p-4 bg-yellow-50 rounded border border-yellow-100">
                     <label className="block text-sm font-bold text-yellow-800 mb-1">Reset Password</label>
                     <input 
@@ -280,7 +333,7 @@ export const Admin: React.FC = () => {
                <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md animate-fade-in-down border-t-8 border-red-600">
                    <h3 className="text-2xl font-bold mb-4 text-red-700">⚠️ Bulk Password Reset</h3>
                    <p className="text-gray-600 mb-6 text-sm">
-                       This will set the same password for <b>ALL users</b> in the system (Doctors, Reception, etc.) except you. 
+                       This will set the same password for <b>ALL users</b> in the system (Doctors, Reception, etc.). 
                        <br/><br/>
                        Use this only for initial setup or emergency resets.
                    </p>
@@ -294,6 +347,29 @@ export const Admin: React.FC = () => {
                    <div className="flex justify-end gap-3">
                        <button onClick={() => setIsBulkResetOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancel</button>
                        <button onClick={handleBulkReset} className="px-4 py-2 bg-red-600 text-white rounded font-bold hover:bg-red-800">Reset All</button>
+                   </div>
+               </div>
+           </div>
+       )}
+
+       {/* SQL Help Modal */}
+       {showSqlHelp && (
+           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+               <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+                   <div className="flex justify-between items-center mb-4">
+                       <h3 className="text-xl font-bold text-gray-800">🛠️ Database Setup (SQL)</h3>
+                       <button onClick={() => setShowSqlHelp(false)} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+                   </div>
+                   <p className="text-sm text-gray-600 mb-4">
+                       It looks like some backend functions are missing (Backend RPC missing). 
+                       Copy the code below and run it in your <b>Supabase SQL Editor</b> to enable password management.
+                   </p>
+                   <div className="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto flex-1 font-mono text-xs border border-gray-700">
+                       <pre>{SQL_FIX_SCRIPT}</pre>
+                   </div>
+                   <div className="flex justify-end gap-3 mt-4">
+                       <button onClick={() => navigator.clipboard.writeText(SQL_FIX_SCRIPT).then(() => alert('Copied to clipboard!'))} className="px-4 py-2 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded font-bold">Copy SQL</button>
+                       <button onClick={() => setShowSqlHelp(false)} className="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 rounded font-bold">Close</button>
                    </div>
                </div>
            </div>
