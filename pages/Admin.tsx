@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
+import { supabase } from '../services/supabaseClient';
 import { User, Permissions, UserRole, DEFAULT_PERMISSIONS } from '../types';
-import { useLanguage } from '../App';
+import { useLanguage, useAuth } from '../App';
 
 export const Admin: React.FC = () => {
   const { t } = useLanguage();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   
@@ -27,29 +29,43 @@ export const Admin: React.FC = () => {
     e.preventDefault();
     if (!editingUser) return;
     
-    // Update Profile
-    await db.users.update(editingUser);
+    try {
+        // Update Profile
+        await db.users.update(editingUser);
 
-    // Update Password if provided
-    if (newPassword.trim()) {
-        try {
-            await db.users.resetPassword(editingUser.id, newPassword);
-            setResetMessage('Profile & Password updated successfully!');
-        } catch (error: any) {
-            console.error(error);
-            setResetMessage('Profile updated, but Password update failed. ensure you are an admin and SQL script is run.');
+        // Update Password if provided
+        if (newPassword.trim()) {
+            if (currentUser?.id === editingUser.id) {
+                // If updating self, use standard Auth API
+                const { error } = await supabase.auth.updateUser({ password: newPassword });
+                if (error) throw error;
+                setResetMessage('Profile & Password updated successfully!');
+            } else {
+                // If updating others, attempt RPC
+                try {
+                   await db.users.resetPassword(editingUser.id, newPassword);
+                   setResetMessage('Profile & Password updated successfully!');
+                } catch (rpcError: any) {
+                    console.error("RPC Error:", rpcError);
+                    throw new Error("Password update failed. Backend RPC missing or insufficient permissions.");
+                }
+            }
+        } else {
+            setResetMessage('Profile updated successfully!');
         }
-    } else {
-        setResetMessage('Profile updated successfully!');
-    }
 
-    setNewPassword('');
-    await loadUsers();
-    
-    // Close modal after short delay if success, or immediately if just profile
-    setTimeout(() => {
-        if(!newPassword) setEditingUser(null); 
-    }, 1000);
+        setNewPassword('');
+        await loadUsers();
+        
+        // Close modal after short delay if success, or immediately if just profile
+        setTimeout(() => {
+            if(!newPassword) setEditingUser(null); 
+        }, 1000);
+
+    } catch (error: any) {
+        console.error(error);
+        setResetMessage(`Profile updated, but Password failed: ${error.message}`);
+    }
   };
 
   const handleBulkReset = async () => {
@@ -128,7 +144,7 @@ export const Admin: React.FC = () => {
                <th className="px-6 py-3 text-start text-xs font-bold text-gray-500 uppercase">{t.role}</th>
                <th className="px-6 py-3 text-start text-xs font-bold text-gray-500 uppercase">{t.actions}</th>
                {permissionKeys.map(key => (
-                 <th key={key} className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase writing-mode-vertical rotate-180">
+                 <th key={key} className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase [writing-mode:vertical-rl] rotate-180">
                     <span className="block w-24 truncate" title={getPermissionLabel(key)}>{getPermissionLabel(key)}</span>
                  </th>
                ))}
@@ -180,7 +196,7 @@ export const Admin: React.FC = () => {
              <h3 className="text-2xl font-bold mb-6 text-gray-800">Edit User: {editingUser.email}</h3>
              
              {resetMessage && (
-                 <div className={`mb-4 p-3 rounded text-sm ${resetMessage.includes('failed') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                 <div className={`mb-4 p-3 rounded text-sm ${resetMessage.toLowerCase().includes('failed') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
                      {resetMessage}
                  </div>
              )}
