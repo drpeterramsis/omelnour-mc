@@ -52,7 +52,7 @@ export const Login: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition"
-                placeholder="admin"
+                placeholder="******"
                 required
               />
             </div>
@@ -65,7 +65,11 @@ export const Login: React.FC = () => {
             </button>
           </form>
           <div className="mt-6 text-center space-y-2">
-              <p className="text-xs text-gray-400">{t.secureSystem}</p>
+              <div className="bg-yellow-50 p-2 rounded text-xs text-yellow-800 border border-yellow-200">
+                  <b>Demo Credentials:</b><br/>
+                  admin@omelnour.com / 123456
+              </div>
+              <p className="text-xs text-gray-400 mt-2">{t.secureSystem}</p>
               <a href="#/" className="block text-sm text-primary hover:underline">← {t.backToHome}</a>
           </div>
         </div>
