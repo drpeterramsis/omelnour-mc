@@ -36,10 +36,17 @@ export const Admin: React.FC = () => {
         // Update Password if provided
         if (newPassword.trim()) {
             if (currentUser?.id === editingUser.id) {
-                // If updating self, use standard Auth API
-                const { error } = await supabase.auth.updateUser({ password: newPassword });
-                if (error) throw error;
-                setResetMessage('Profile & Password updated successfully!');
+                // Check for active session first (handles Demo/Fallback mode)
+                const { data: { session } } = await supabase.auth.getSession();
+                
+                if (session) {
+                    const { error } = await supabase.auth.updateUser({ password: newPassword });
+                    if (error) throw error;
+                    setResetMessage('Profile & Password updated successfully!');
+                } else {
+                    console.warn("No active Supabase session. Password update skipped.");
+                    setResetMessage('Profile updated. Password not changed (Demo/Fallback Mode).');
+                }
             } else {
                 // If updating others, attempt RPC
                 try {
@@ -47,7 +54,8 @@ export const Admin: React.FC = () => {
                    setResetMessage('Profile & Password updated successfully!');
                 } catch (rpcError: any) {
                     console.error("RPC Error:", rpcError);
-                    throw new Error("Password update failed. Backend RPC missing or insufficient permissions.");
+                    // Graceful fallback if RPC is missing
+                    setResetMessage('Profile updated. Password reset skipped (Backend RPC missing).');
                 }
             }
         } else {
@@ -60,7 +68,7 @@ export const Admin: React.FC = () => {
         // Close modal after short delay if success, or immediately if just profile
         setTimeout(() => {
             if(!newPassword) setEditingUser(null); 
-        }, 1000);
+        }, 1500);
 
     } catch (error: any) {
         console.error(error);
@@ -119,6 +127,14 @@ export const Admin: React.FC = () => {
       'can_manage_exceptions', 'can_manage_clinics', 'can_view_admin_panel'
   ];
 
+  // Helper to determine message color
+  const getMessageColor = (msg: string) => {
+      const lower = msg.toLowerCase();
+      if (lower.includes('failed') || lower.includes('error')) return 'bg-red-100 text-red-800';
+      if (lower.includes('skipped') || lower.includes('demo') || lower.includes('rpc')) return 'bg-yellow-100 text-yellow-800';
+      return 'bg-green-100 text-green-800';
+  };
+
   return (
     <div className="space-y-6 font-sans">
        <div className="flex justify-between items-center border-b pb-4">
@@ -144,8 +160,8 @@ export const Admin: React.FC = () => {
                <th className="px-6 py-3 text-start text-xs font-bold text-gray-500 uppercase">{t.role}</th>
                <th className="px-6 py-3 text-start text-xs font-bold text-gray-500 uppercase">{t.actions}</th>
                {permissionKeys.map(key => (
-                 <th key={key} className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase [writing-mode:vertical-rl] rotate-180">
-                    <span className="block w-24 truncate" title={getPermissionLabel(key)}>{getPermissionLabel(key)}</span>
+                 <th key={key} className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase whitespace-normal">
+                    <span className="block w-20 mx-auto" title={getPermissionLabel(key)}>{getPermissionLabel(key)}</span>
                  </th>
                ))}
              </tr>
@@ -196,7 +212,7 @@ export const Admin: React.FC = () => {
              <h3 className="text-2xl font-bold mb-6 text-gray-800">Edit User: {editingUser.email}</h3>
              
              {resetMessage && (
-                 <div className={`mb-4 p-3 rounded text-sm ${resetMessage.toLowerCase().includes('failed') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                 <div className={`mb-4 p-3 rounded text-sm ${getMessageColor(resetMessage)} border`}>
                      {resetMessage}
                  </div>
              )}
