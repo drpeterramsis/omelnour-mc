@@ -15,9 +15,12 @@ export const Login: React.FC = () => {
     setLoading(true);
     setError('');
     
-    const success = await login(email, password);
-    if (!success) {
-      setError(t.authError);
+    // Login now returns an object { success, error }
+    const result = await login(email, password);
+    
+    if (!result.success) {
+      // Show the specific error from Supabase or Fallback
+      setError(result.error || t.authError);
       setLoading(false);
     } else {
         window.location.hash = '#/dashboard';
@@ -33,7 +36,7 @@ export const Login: React.FC = () => {
         </div>
         <div className="p-8">
           <h2 className="text-2xl font-semibold text-gray-700 mb-6 text-center">{t.signIn}</h2>
-          {error && <div className="bg-red-50 text-red-500 p-3 rounded mb-4 text-sm font-medium">{error}</div>}
+          {error && <div className="bg-red-50 text-red-500 p-3 rounded mb-4 text-sm font-medium border border-red-200">{error}</div>}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-gray-600 text-sm font-medium mb-1">{t.email}</label>

@@ -22,9 +22,14 @@ const LanguageContext = createContext<LanguageContextType>(null!);
 export const useLanguage = () => useContext(LanguageContext);
 
 // --- Auth Context ---
+interface LoginResult {
+  success: boolean;
+  error?: string;
+}
+
 interface AuthContextType {
   user: User | null;
-  login: (e: string, p: string) => Promise<boolean>;
+  login: (e: string, p: string) => Promise<LoginResult>;
   logout: () => void;
   loading: boolean;
 }
@@ -124,30 +129,42 @@ const App: React.FC = () => {
       setLoading(false);
   };
 
-  const login = async (email: string, pass: string): Promise<boolean> => {
+  const login = async (email: string, pass: string): Promise<LoginResult> => {
     console.log("Attempting login for:", email);
+    
     // 1. Try Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
     
     if (error) {
-        console.error("Supabase Auth Error (Check Console for Details):", error.message);
+        console.error("Supabase Auth Error:", error.message);
         
-        // 2. Fallback for Demo (Only if Auth fails)
-        console.warn("Attempting Fallback (Unsafe) Login check...");
-        const allUsers = await db.users.getAll();
-        const mockUser = allUsers.find(u => u.email === email); 
-        
-        if (mockUser) {
-            console.log("User found in profiles table (Fallback). Logging in without password check (Demo Mode).");
-            setUser(mockUser);
-            return true;
-        } else {
-            console.error("User NOT found in profiles table either.");
+        // 2. Fallback for Demo (Safety Check: Only if Auth fails)
+        // This is primarily to help during the setup phase if the Auth triggers misfired.
+        console.warn("Attempting Fallback Login check...");
+        try {
+            const allUsers = await db.users.getAll();
+            console.log(`Fallback: Found ${allUsers.length} users in public.profiles.`);
+            
+            // Case-insensitive check
+            const mockUser = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase()); 
+            
+            if (mockUser) {
+                console.log("SUCCESS: User found in profiles table. Logging in via Fallback Mode.");
+                setUser(mockUser);
+                return { success: true };
+            } else {
+                console.error("Fallback Failed: User email not found in public.profiles.");
+            }
+        } catch (fbError: any) {
+            console.error("Fallback Error: Could not read profiles.", fbError.message);
         }
-        return false;
+
+        // Return the original auth error
+        return { success: false, error: error.message };
     }
+
     console.log("Supabase Auth Success");
-    return true;
+    return { success: true };
   };
 
   const logout = async () => {

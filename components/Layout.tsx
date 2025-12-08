@@ -58,7 +58,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </main>
         <footer className="bg-white border-t py-8 mt-12">
            <div className="max-w-7xl mx-auto px-4 text-center text-gray-500 text-sm">
-              &copy; {new Date().getFullYear()} {t.appTitle}. v1.0.008
+              &copy; {new Date().getFullYear()} {t.appTitle}. v1.0.009
            </div>
         </footer>
       </div>
