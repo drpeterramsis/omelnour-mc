@@ -86,7 +86,7 @@ export const Admin: React.FC = () => {
                 }
             }
 
-            // Attempt 2: RPC Update (Works for Others OR Self in Fallback Mode)
+            // Attempt 2: RPC Update (Works for Others OR Self)
             if (!passwordUpdated) {
                 try {
                    await db.users.resetPassword(editingUser.id, newPassword);
@@ -95,6 +95,7 @@ export const Admin: React.FC = () => {
                 } catch (rpcError: any) {
                     console.error("RPC Error:", rpcError);
                     if (rpcError.message?.includes('function') || rpcError.message?.includes('found') || rpcError.code === 'PGRST202') {
+                        setShowSqlHelp(true); // Auto-show help if functions missing
                         throw new Error(`Backend RPC missing. Please run the SQL setup.`);
                     }
                     throw rpcError;
@@ -133,6 +134,7 @@ export const Admin: React.FC = () => {
           setBulkPassword('');
       } catch (error: any) {
           console.error(error);
+          setShowSqlHelp(true); // Auto-show help if fails
           alert("Failed: " + error.message + " (Check Database Setup)");
       }
   };

@@ -137,30 +137,9 @@ const App: React.FC = () => {
     
     if (error) {
         console.error("Supabase Auth Error:", error.message);
-        
-        // 2. Fallback for Demo (Safety Check: Only if Auth fails)
-        // This is primarily to help during the setup phase if the Auth triggers misfired.
-        console.warn("Attempting Fallback Login check...");
-        try {
-            const allUsers = await db.users.getAll();
-            console.log(`Fallback: Found ${allUsers.length} users in public.profiles.`);
-            
-            // Case-insensitive check
-            const mockUser = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase()); 
-            
-            if (mockUser) {
-                console.log("SUCCESS: User found in profiles table. Logging in via Fallback Mode.");
-                setUser(mockUser);
-                return { success: true };
-            } else {
-                console.error("Fallback Failed: User email not found in public.profiles.");
-            }
-        } catch (fbError: any) {
-            console.error("Fallback Error: Could not read profiles.", fbError.message);
-        }
-
-        // Return the original auth error
-        return { success: false, error: error.message };
+        // SECURITY FIX: Removed insecure fallback.
+        // If auth fails, we return the error immediately.
+        return { success: false, error: "Invalid login credentials." };
     }
 
     console.log("Supabase Auth Success");
