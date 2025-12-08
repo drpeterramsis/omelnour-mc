@@ -114,32 +114,39 @@ const App: React.FC = () => {
   }, []);
 
   const fetchProfile = async (userId: string) => {
+      console.log("Fetching profile for:", userId);
       const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
       if (data) {
           setUser(data as User);
       } else {
-          // Fallback for demo if profile missing
-          console.error("Profile not found", error);
+          console.error("Profile not found in 'profiles' table. Ensure SQL seed script ran.", error);
       }
       setLoading(false);
   };
 
   const login = async (email: string, pass: string): Promise<boolean> => {
+    console.log("Attempting login for:", email);
     // 1. Try Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
     
     if (error) {
-        console.error("Supabase Auth Error:", error.message);
-        // 2. Fallback for Demo (Mock Login if Supabase fails or user not in auth system yet)
-        // This allows you to test the admin panel even if you haven't set up Auth Users in Supabase yet.
+        console.error("Supabase Auth Error (Check Console for Details):", error.message);
+        
+        // 2. Fallback for Demo (Only if Auth fails)
+        console.warn("Attempting Fallback (Unsafe) Login check...");
         const allUsers = await db.users.getAll();
-        const mockUser = allUsers.find(u => u.email === email); // Check email only for mock
+        const mockUser = allUsers.find(u => u.email === email); 
+        
         if (mockUser) {
+            console.log("User found in profiles table (Fallback). Logging in without password check (Demo Mode).");
             setUser(mockUser);
             return true;
+        } else {
+            console.error("User NOT found in profiles table either.");
         }
         return false;
     }
+    console.log("Supabase Auth Success");
     return true;
   };
 
