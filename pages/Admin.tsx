@@ -17,6 +17,10 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 DROP TRIGGER IF EXISTS on_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.create_profile_for_user() CASCADE;
+-- Additional common trigger names that might cause issues
+DROP TRIGGER IF EXISTS on_auth_sign_up ON auth.users;
+DROP TRIGGER IF EXISTS signup_trigger ON auth.users;
+DROP TRIGGER IF EXISTS on_signup ON auth.users;
 
 -- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -142,7 +146,13 @@ BEGIN
 END;
 $$;
 
--- 7. SEED DATA & FIX ADMIN USER
+-- 7. GRANT PERMISSIONS (Fixes 'permission denied' errors)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- 8. SEED DATA & FIX ADMIN USER
 DO $$
 DECLARE
   admin_uid uuid;

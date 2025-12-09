@@ -22,9 +22,14 @@ export const Login: React.FC = () => {
     const result = await login(email, password);
     
     if (!result.success) {
-      // Show the specific error from Supabase or Fallback
-      setError(result.error || t.authError);
+      const err = result.error || t.authError;
+      setError(err);
       setLoading(false);
+
+      // Automatically show repair modal for critical schema/database errors
+      if (err.toLowerCase().includes('database') || err.toLowerCase().includes('schema') || err.toLowerCase().includes('function')) {
+          setShowRepair(true);
+      }
     } else {
         window.location.hash = '#/dashboard';
     }
@@ -103,9 +108,9 @@ export const Login: React.FC = () => {
               {isDatabaseError && (
                  <button 
                     onClick={() => setShowRepair(true)} 
-                    className="block w-full text-center text-red-600 hover:underline text-xs mt-4 font-bold"
+                    className="block w-full text-center text-red-600 hover:underline text-xs mt-4 font-bold animate-pulse"
                  >
-                    🛠️ Database Error? Click here to fix system
+                    🛠️ Database Error Detected! Click here to fix.
                  </button>
               )}
 
@@ -123,11 +128,15 @@ export const Login: React.FC = () => {
                        <button onClick={() => setShowRepair(false)} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
                    </div>
                    <div className="mb-4 text-sm text-gray-600 space-y-2">
-                       <p>It looks like the database setup is incomplete or corrupted.</p>
+                       <div className="bg-red-100 text-red-800 p-3 rounded font-bold">
+                           ⚠️ CRITICAL: The database is blocking your login.
+                       </div>
+                       <p>You must run this script in your Supabase Dashboard to remove the block.</p>
                        <ol className="list-decimal list-inside space-y-1 ml-2 font-medium">
                            <li>Copy the SQL code below.</li>
-                           <li>Go to your <b>Supabase Dashboard</b> {'>'} <b>SQL Editor</b>.</li>
+                           <li>Go to <b>Supabase Dashboard</b> {'>'} <b>SQL Editor</b>.</li>
                            <li>Paste the code and click <b>Run</b>.</li>
+                           <li>Come back here and try logging in again.</li>
                        </ol>
                    </div>
                    <div className="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto flex-1 font-mono text-xs border border-gray-700">
