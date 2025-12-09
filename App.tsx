@@ -108,7 +108,9 @@ const App: React.FC = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         if (session?.user) {
-             fetchProfile(session.user.id);
+             // We don't fetch automatically here to avoid race conditions with manual login flow
+             // Manual login calls fetchProfile explicitly
+             if (!user) fetchProfile(session.user.id);
         } else {
             setUser(null);
             setLoading(false);
@@ -118,15 +120,26 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string): Promise<User | null> => {
       console.log("Fetching profile for:", userId);
+      // We check for the profile. If this fails due to RLS or missing data, we handle it.
       const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      if (data) {
-          setUser(data as User);
-      } else {
-          console.error("Profile not found in 'profiles' table. Ensure SQL seed script ran.", error);
+      
+      if (error) {
+          console.error("Profile Fetch Error:", error.message);
       }
-      setLoading(false);
+
+      if (data) {
+          const u = data as User;
+          setUser(u);
+          setLoading(false);
+          return u;
+      } else {
+          console.error("Profile not found in 'profiles' table. Ensure SQL seed script ran.");
+          setUser(null);
+          setLoading(false);
+          return null;
+      }
   };
 
   const login = async (email: string, pass: string): Promise<LoginResult> => {
@@ -137,13 +150,23 @@ const App: React.FC = () => {
     
     if (error) {
         console.error("Supabase Auth Error:", error.message);
-        // SECURITY FIX: Removed insecure fallback.
-        // If auth fails, we return the error immediately.
-        return { success: false, error: "Invalid login credentials." };
+        return { success: false, error: error.message };
     }
 
-    console.log("Supabase Auth Success");
-    return { success: true };
+    // 2. If Auth successful, ensure Profile exists
+    if (data.session?.user) {
+        const userProfile = await fetchProfile(data.session.user.id);
+        
+        if (userProfile) {
+            return { success: true };
+        } else {
+            // Auth worked but no profile? Sign out immediately to avoid stuck state
+            await supabase.auth.signOut();
+            return { success: false, error: "Access Denied: User profile missing. Please contact Admin to run Database Setup." };
+        }
+    }
+
+    return { success: false, error: "Session creation failed." };
   };
 
   const logout = async () => {

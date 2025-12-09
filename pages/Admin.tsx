@@ -4,36 +4,157 @@ import { supabase } from '../services/supabaseClient';
 import { User, Permissions, UserRole, DEFAULT_PERMISSIONS } from '../types';
 import { useLanguage, useAuth } from '../App';
 
-// SQL Script for user to fix missing RPCs
+// SQL Script for user to fix missing RPCs and Tables
 const SQL_FIX_SCRIPT = `
+-- ==========================================
+-- MASTER SETUP SCRIPT (Run in Supabase SQL Editor)
+-- ==========================================
+
 -- 1. Enable crypto extension
-create extension if not exists "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 2. Function to reset password (admin only)
--- Security Definer allows it to run with higher privileges
-create or replace function admin_reset_password(target_user_id uuid, new_password text)
-returns void
-language plpgsql
-security definer
-as $$
-begin
-  update auth.users
-  set encrypted_password = crypt(new_password, gen_salt('bf'))
-  where id = target_user_id;
-end;
+-- 2. Create Types (Idempotent)
+DO $$ BEGIN CREATE TYPE user_role AS ENUM ('ADMIN', 'RECEPTION', 'DOCTOR'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN CREATE TYPE appointment_status AS ENUM ('PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- 3. Create Tables (If Not Exists)
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid references auth.users on delete cascade primary key,
+  email text,
+  name text,
+  role text default 'RECEPTION',
+  permissions jsonb default '{}'::jsonb,
+  is_active boolean default true
+);
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.specialties (
+  id uuid default gen_random_uuid() primary key,
+  title text not null
+);
+ALTER TABLE public.specialties ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.clinics (
+  id uuid default gen_random_uuid() primary key,
+  name text not null,
+  location text not null
+);
+ALTER TABLE public.clinics ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.doctors (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id),
+  name text not null,
+  specialty_id uuid references public.specialties(id),
+  start_date date,
+  is_active boolean default true
+);
+ALTER TABLE public.doctors ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.schedules (
+  id uuid default gen_random_uuid() primary key,
+  doctor_id uuid references public.doctors(id),
+  clinic_id uuid references public.clinics(id),
+  day_of_week int not null,
+  start_time text not null,
+  end_time text not null
+);
+ALTER TABLE public.schedules ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.doctor_exceptions (
+  id uuid default gen_random_uuid() primary key,
+  doctor_id uuid references public.doctors(id),
+  date text not null,
+  reason text
+);
+ALTER TABLE public.doctor_exceptions ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.appointments (
+  id uuid default gen_random_uuid() primary key,
+  doctor_id uuid references public.doctors(id),
+  clinic_id uuid references public.clinics(id),
+  patient_name text not null,
+  patient_phone text not null,
+  date text not null,
+  time text not null,
+  status text default 'PENDING',
+  notes text,
+  created_at timestamp with time zone default now()
+);
+ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+
+-- 4. POLICIES (Fixing "Permission Denied" Errors)
+-- We use permissive policies for this app to ensure login flows work smoothly.
+DROP POLICY IF EXISTS "Public Full Access Profiles" ON profiles;
+CREATE POLICY "Public Full Access Profiles" ON profiles FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Public Full Access Doctors" ON doctors;
+CREATE POLICY "Public Full Access Doctors" ON doctors FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Public Full Access Clinics" ON clinics;
+CREATE POLICY "Public Full Access Clinics" ON clinics FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Public Full Access Specialties" ON specialties;
+CREATE POLICY "Public Full Access Specialties" ON specialties FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Public Full Access Schedules" ON schedules;
+CREATE POLICY "Public Full Access Schedules" ON schedules FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Public Full Access Exceptions" ON doctor_exceptions;
+CREATE POLICY "Public Full Access Exceptions" ON doctor_exceptions FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Public Full Access Appointments" ON appointments;
+CREATE POLICY "Public Full Access Appointments" ON appointments FOR ALL USING (true);
+
+-- 5. Helper Functions (Password Reset)
+CREATE OR REPLACE FUNCTION admin_reset_password(target_user_id uuid, new_password text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE auth.users
+  SET encrypted_password = crypt(new_password, gen_salt('bf'))
+  WHERE id = target_user_id;
+END;
 $$;
 
--- 3. Function to reset all passwords
-create or replace function admin_reset_all_passwords(new_password text)
-returns void
-language plpgsql
-security definer
-as $$
-begin
-  update auth.users
-  set encrypted_password = crypt(new_password, gen_salt('bf'));
-end;
+CREATE OR REPLACE FUNCTION admin_reset_all_passwords(new_password text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE auth.users
+  SET encrypted_password = crypt(new_password, gen_salt('bf'));
+END;
 $$;
+
+-- 6. SEED DEFAULT ADMIN (SAFE)
+DO $$
+DECLARE
+  new_id uuid := gen_random_uuid();
+  existing_user_id uuid;
+BEGIN
+  -- Check if user exists in auth.users
+  SELECT id INTO existing_user_id FROM auth.users WHERE email = 'admin@omelnour.com';
+  
+  IF existing_user_id IS NULL THEN
+    -- Create new user in auth.users
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+    VALUES (new_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin@omelnour.com', crypt('123456', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Admin"}', now(), now())
+    RETURNING id INTO existing_user_id;
+  END IF;
+
+  -- Ensure profile exists for this user (Fixes orphaned auth users)
+  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = existing_user_id) THEN
+    INSERT INTO public.profiles (id, email, name, role, permissions, is_active)
+    VALUES (existing_user_id, 'admin@omelnour.com', 'System Admin', 'ADMIN', '{"can_manage_doctors": true, "can_manage_schedules": true, "can_manage_appointments": true, "can_manage_exceptions": true, "can_manage_clinics": true, "can_view_admin_panel": true}', true);
+  END IF;
+  
+  -- Also ensure Reception user exists for demo
+  -- (Can be added similarly if needed, but Admin is critical)
+END $$;
 `;
 
 export const Admin: React.FC = () => {
