@@ -97,7 +97,7 @@ const App: React.FC = () => {
   const [language, setLanguageState] = useState<Language>('ar');
 
   useEffect(() => {
-    // Check active session
+    // Check active session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         fetchProfile(session.user.id);
@@ -106,11 +106,13 @@ const App: React.FC = () => {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session?.user) {
-             // We don't fetch automatically here to avoid race conditions with manual login flow
-             // Manual login calls fetchProfile explicitly
-             if (!user) fetchProfile(session.user.id);
+             // If we have a user but no profile in state, fetch it
+             if (!user) {
+                await fetchProfile(session.user.id);
+             }
         } else {
             setUser(null);
             setLoading(false);
@@ -121,12 +123,14 @@ const App: React.FC = () => {
   }, []);
 
   const fetchProfile = async (userId: string): Promise<User | null> => {
-      console.log("Fetching profile for:", userId);
-      // We check for the profile. If this fails due to RLS or missing data, we handle it.
+      // console.log("Fetching profile for:", userId);
       const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
       
       if (error) {
           console.error("Profile Fetch Error:", error.message);
+          // If profile is missing, we must fail the "login" state in the UI
+          setLoading(false);
+          return null;
       }
 
       if (data) {
@@ -135,7 +139,7 @@ const App: React.FC = () => {
           setLoading(false);
           return u;
       } else {
-          console.error("Profile not found in 'profiles' table. Ensure SQL seed script ran.");
+          console.error("Profile missing from database.");
           setUser(null);
           setLoading(false);
           return null;
@@ -143,8 +147,6 @@ const App: React.FC = () => {
   };
 
   const login = async (email: string, pass: string): Promise<LoginResult> => {
-    console.log("Attempting login for:", email);
-    
     // 1. Try Supabase Auth
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
     
@@ -155,6 +157,7 @@ const App: React.FC = () => {
 
     // 2. If Auth successful, ensure Profile exists
     if (data.session?.user) {
+        // Force a fresh fetch to verify DB consistency
         const userProfile = await fetchProfile(data.session.user.id);
         
         if (userProfile) {
@@ -162,7 +165,7 @@ const App: React.FC = () => {
         } else {
             // Auth worked but no profile? Sign out immediately to avoid stuck state
             await supabase.auth.signOut();
-            return { success: false, error: "Access Denied: User profile missing. Please contact Admin to run Database Setup." };
+            return { success: false, error: "Access Denied: User profile missing. Please contact Admin to run Database Setup SQL." };
         }
     }
 

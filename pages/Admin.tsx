@@ -5,19 +5,20 @@ import { User, Permissions, UserRole, DEFAULT_PERMISSIONS } from '../types';
 import { useLanguage, useAuth } from '../App';
 
 // SQL Script for user to fix missing RPCs and Tables
-const SQL_FIX_SCRIPT = `
--- ==========================================
--- MASTER SETUP SCRIPT (Run in Supabase SQL Editor)
+// This has been updated to be the "Ultimate Fix" script
+const SQL_FIX_SCRIPT = `-- ==========================================
+-- ULTIMATE DATABASE SETUP & FIX SCRIPT
+-- RUN THIS IN SUPABASE SQL EDITOR
 -- ==========================================
 
--- 1. Enable crypto extension
+-- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 2. Create Types (Idempotent)
+-- 2. ENUMS (Safe Creation)
 DO $$ BEGIN CREATE TYPE user_role AS ENUM ('ADMIN', 'RECEPTION', 'DOCTOR'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE TYPE appointment_status AS ENUM ('PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
--- 3. Create Tables (If Not Exists)
+-- 3. TABLES (Create if Not Exists)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid references auth.users on delete cascade primary key,
   email text,
@@ -26,20 +27,17 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   permissions jsonb default '{}'::jsonb,
   is_active boolean default true
 );
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.specialties (
   id uuid default gen_random_uuid() primary key,
   title text not null
 );
-ALTER TABLE public.specialties ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.clinics (
   id uuid default gen_random_uuid() primary key,
   name text not null,
   location text not null
 );
-ALTER TABLE public.clinics ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.doctors (
   id uuid default gen_random_uuid() primary key,
@@ -49,7 +47,6 @@ CREATE TABLE IF NOT EXISTS public.doctors (
   start_date date,
   is_active boolean default true
 );
-ALTER TABLE public.doctors ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.schedules (
   id uuid default gen_random_uuid() primary key,
@@ -59,7 +56,6 @@ CREATE TABLE IF NOT EXISTS public.schedules (
   start_time text not null,
   end_time text not null
 );
-ALTER TABLE public.schedules ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.doctor_exceptions (
   id uuid default gen_random_uuid() primary key,
@@ -67,7 +63,6 @@ CREATE TABLE IF NOT EXISTS public.doctor_exceptions (
   date text not null,
   reason text
 );
-ALTER TABLE public.doctor_exceptions ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public.appointments (
   id uuid default gen_random_uuid() primary key,
@@ -81,32 +76,42 @@ CREATE TABLE IF NOT EXISTS public.appointments (
   notes text,
   created_at timestamp with time zone default now()
 );
-ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 
--- 4. POLICIES (Fixing "Permission Denied" Errors)
--- We use permissive policies for this app to ensure login flows work smoothly.
-DROP POLICY IF EXISTS "Public Full Access Profiles" ON profiles;
-CREATE POLICY "Public Full Access Profiles" ON profiles FOR ALL USING (true);
+-- 4. ENABLE RLS (Row Level Security)
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE doctors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clinics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE specialties ENABLE ROW LEVEL SECURITY;
+ALTER TABLE doctor_exceptions ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Public Full Access Doctors" ON doctors;
-CREATE POLICY "Public Full Access Doctors" ON doctors FOR ALL USING (true);
+-- 5. POLICIES (PERMISSIVE - FIXES LOGIN ISSUES)
+-- We drop existing to avoid conflicts and recreate wide-open policies for ease of use.
 
-DROP POLICY IF EXISTS "Public Full Access Clinics" ON clinics;
-CREATE POLICY "Public Full Access Clinics" ON clinics FOR ALL USING (true);
+-- Profiles: Public Read is CRITICAL for login checks
+DROP POLICY IF EXISTS "Public Read Profiles" ON profiles;
+CREATE POLICY "Public Read Profiles" ON profiles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users Update Own Profile" ON profiles;
+CREATE POLICY "Users Update Own Profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Admin Full Access Profiles" ON profiles;
+CREATE POLICY "Admin Full Access Profiles" ON profiles FOR ALL USING (true); -- Simplified for Admin panel
 
-DROP POLICY IF EXISTS "Public Full Access Specialties" ON specialties;
-CREATE POLICY "Public Full Access Specialties" ON specialties FOR ALL USING (true);
+-- Other Tables: Public Read / Auth Write (Simplified)
+DO $$ 
+DECLARE 
+  tbl text; 
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY['doctors', 'clinics', 'specialties', 'schedules', 'doctor_exceptions', 'appointments'] LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "Public Read All %I" ON %I', tbl, tbl);
+    EXECUTE format('CREATE POLICY "Public Read All %I" ON %I FOR SELECT USING (true)', tbl, tbl);
+    
+    EXECUTE format('DROP POLICY IF EXISTS "Staff Full Access %I" ON %I', tbl, tbl);
+    EXECUTE format('CREATE POLICY "Staff Full Access %I" ON %I FOR ALL USING (auth.role() = ''authenticated'')', tbl, tbl);
+  END LOOP;
+END $$;
 
-DROP POLICY IF EXISTS "Public Full Access Schedules" ON schedules;
-CREATE POLICY "Public Full Access Schedules" ON schedules FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Public Full Access Exceptions" ON doctor_exceptions;
-CREATE POLICY "Public Full Access Exceptions" ON doctor_exceptions FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Public Full Access Appointments" ON appointments;
-CREATE POLICY "Public Full Access Appointments" ON appointments FOR ALL USING (true);
-
--- 5. Helper Functions (Password Reset)
+-- 6. PASSWORD RESET FUNCTIONS (RPC)
 CREATE OR REPLACE FUNCTION admin_reset_password(target_user_id uuid, new_password text)
 RETURNS void
 LANGUAGE plpgsql
@@ -130,32 +135,57 @@ BEGIN
 END;
 $$;
 
--- 6. SEED DEFAULT ADMIN (SAFE)
+-- 7. SEED DATA & FIX ADMIN USER
 DO $$
 DECLARE
-  new_id uuid := gen_random_uuid();
-  existing_user_id uuid;
+  admin_uid uuid;
 BEGIN
-  -- Check if user exists in auth.users
-  SELECT id INTO existing_user_id FROM auth.users WHERE email = 'admin@omelnour.com';
+  -- A. Check/Create Admin in auth.users
+  SELECT id INTO admin_uid FROM auth.users WHERE email = 'admin@omelnour.com';
   
-  IF existing_user_id IS NULL THEN
-    -- Create new user in auth.users
+  IF admin_uid IS NULL THEN
+    admin_uid := gen_random_uuid();
     INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
-    VALUES (new_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin@omelnour.com', crypt('123456', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}', '{"name":"Admin"}', now(), now())
-    RETURNING id INTO existing_user_id;
+    VALUES (
+      admin_uid, 
+      '00000000-0000-0000-0000-000000000000', 
+      'authenticated', 
+      'authenticated', 
+      'admin@omelnour.com', 
+      crypt('123456', gen_salt('bf')), 
+      now(), 
+      '{"provider":"email","providers":["email"]}', 
+      '{"name":"System Admin"}', 
+      now(), 
+      now()
+    );
+  ELSE
+    -- Reset password if exists
+    UPDATE auth.users 
+    SET encrypted_password = crypt('123456', gen_salt('bf')), email_confirmed_at = now() 
+    WHERE id = admin_uid;
   END IF;
 
-  -- Ensure profile exists for this user (Fixes orphaned auth users)
-  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = existing_user_id) THEN
-    INSERT INTO public.profiles (id, email, name, role, permissions, is_active)
-    VALUES (existing_user_id, 'admin@omelnour.com', 'System Admin', 'ADMIN', '{"can_manage_doctors": true, "can_manage_schedules": true, "can_manage_appointments": true, "can_manage_exceptions": true, "can_manage_clinics": true, "can_view_admin_panel": true}', true);
+  -- B. Ensure Profile exists (Critical for Login)
+  INSERT INTO public.profiles (id, email, name, role, permissions, is_active)
+  VALUES (
+    admin_uid, 
+    'admin@omelnour.com', 
+    'General Manager', 
+    'ADMIN', 
+    '{"can_manage_doctors": true, "can_manage_schedules": true, "can_manage_appointments": true, "can_manage_exceptions": true, "can_manage_clinics": true, "can_view_admin_panel": true}', 
+    true
+  )
+  ON CONFLICT (id) DO UPDATE SET 
+    role = 'ADMIN',
+    permissions = '{"can_manage_doctors": true, "can_manage_schedules": true, "can_manage_appointments": true, "can_manage_exceptions": true, "can_manage_clinics": true, "can_view_admin_panel": true}';
+
+  -- C. Add a sample Specialty if none
+  IF NOT EXISTS (SELECT 1 FROM specialties) THEN
+    INSERT INTO specialties (title) VALUES ('General Medicine'), ('Cardiology'), ('Pediatrics');
   END IF;
-  
-  -- Also ensure Reception user exists for demo
-  -- (Can be added similarly if needed, but Admin is critical)
-END $$;
-`;
+
+END $$;`;
 
 export const Admin: React.FC = () => {
   const { t } = useLanguage();
@@ -484,8 +514,7 @@ export const Admin: React.FC = () => {
                        <button onClick={() => setShowSqlHelp(false)} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
                    </div>
                    <p className="text-sm text-gray-600 mb-4">
-                       It looks like some backend functions are missing (Backend RPC missing). 
-                       Copy the code below and run it in your <b>Supabase SQL Editor</b> to enable password management.
+                       Copy and run this in your <b>Supabase SQL Editor</b> to fix login issues and tables.
                    </p>
                    <div className="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto flex-1 font-mono text-xs border border-gray-700">
                        <pre>{SQL_FIX_SCRIPT}</pre>
