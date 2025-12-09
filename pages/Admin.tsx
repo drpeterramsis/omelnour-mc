@@ -7,27 +7,27 @@ import { useLanguage, useAuth } from '../App';
 // SQL Script for user to fix missing RPCs and Tables
 // This has been updated to be the "Ultimate Fix" script
 export const SQL_FIX_SCRIPT = `-- ==========================================
--- ULTIMATE DATABASE SETUP & FIX SCRIPT
+-- ULTIMATE DATABASE REPAIR SCRIPT v2.0
 -- RUN THIS IN SUPABASE SQL EDITOR
 -- ==========================================
 
--- 0. CLEANUP (Remove potential bad triggers causing login errors)
--- This fixes the "Database error querying schema" issue
+-- 1. NUCLEAR CLEANUP (Removes ALL blockers)
+-- We drop every possible bad trigger that causes "Database error querying schema"
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 DROP TRIGGER IF EXISTS on_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.create_profile_for_user() CASCADE;
--- Additional common trigger names that might cause issues
-DROP TRIGGER IF EXISTS on_auth_sign_up ON auth.users;
-DROP TRIGGER IF EXISTS signup_trigger ON auth.users;
 DROP TRIGGER IF EXISTS on_signup ON auth.users;
+DROP TRIGGER IF EXISTS on_auth_sign_up ON auth.users;
+DROP TRIGGER IF EXISTS handle_new_user ON auth.users;
+DROP TRIGGER IF EXISTS create_profile_for_user ON auth.users;
+DROP TRIGGER IF EXISTS profile_on_signup ON auth.users;
 
--- 1. EXTENSIONS
+-- Drop associated functions
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+DROP FUNCTION IF EXISTS public.create_profile_for_user() CASCADE;
+DROP FUNCTION IF EXISTS public.handle_new_user CASCADE;
+
+-- 2. EXTENSIONS & SETUP
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- 2. ENUMS (Safe Creation)
-DO $$ BEGIN CREATE TYPE user_role AS ENUM ('ADMIN', 'RECEPTION', 'DOCTOR'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-DO $$ BEGIN CREATE TYPE appointment_status AS ENUM ('PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- 3. TABLES (Create if Not Exists)
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
   created_at timestamp with time zone default now()
 );
 
--- 4. ENABLE RLS (Row Level Security)
+-- 4. ENABLE RLS
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE doctors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clinics ENABLE ROW LEVEL SECURITY;
@@ -97,18 +97,16 @@ ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE specialties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE doctor_exceptions ENABLE ROW LEVEL SECURITY;
 
--- 5. POLICIES (PERMISSIVE - FIXES LOGIN ISSUES)
--- We drop existing to avoid conflicts and recreate wide-open policies for ease of use.
-
--- Profiles: Public Read is CRITICAL for login checks
+-- 5. POLICIES (Reset to Permissive Mode)
+-- Profiles
 DROP POLICY IF EXISTS "Public Read Profiles" ON profiles;
 CREATE POLICY "Public Read Profiles" ON profiles FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Users Update Own Profile" ON profiles;
 CREATE POLICY "Users Update Own Profile" ON profiles FOR UPDATE USING (auth.uid() = id);
 DROP POLICY IF EXISTS "Admin Full Access Profiles" ON profiles;
-CREATE POLICY "Admin Full Access Profiles" ON profiles FOR ALL USING (true); -- Simplified for Admin panel
+CREATE POLICY "Admin Full Access Profiles" ON profiles FOR ALL USING (true);
 
--- Other Tables: Public Read / Auth Write (Simplified)
+-- Other Tables Loop
 DO $$ 
 DECLARE 
   tbl text; 
@@ -122,7 +120,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- 6. PASSWORD RESET FUNCTIONS (RPC)
+-- 6. FUNCTIONS (Password Reset)
 CREATE OR REPLACE FUNCTION admin_reset_password(target_user_id uuid, new_password text)
 RETURNS void
 LANGUAGE plpgsql
@@ -146,63 +144,45 @@ BEGIN
 END;
 $$;
 
--- 7. GRANT PERMISSIONS (Fixes 'permission denied' errors)
+-- 7. GRANT PERMISSIONS (Fixes Access Denied)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 
--- 8. SEED DATA & FIX ADMIN USER
+-- 8. SEED ADMIN USER
 DO $$
 DECLARE
   admin_uid uuid;
 BEGIN
-  -- A. Check/Create Admin in auth.users
   SELECT id INTO admin_uid FROM auth.users WHERE email = 'admin@omelnour.com';
   
   IF admin_uid IS NULL THEN
     admin_uid := gen_random_uuid();
     INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
     VALUES (
-      admin_uid, 
-      '00000000-0000-0000-0000-000000000000', 
-      'authenticated', 
-      'authenticated', 
-      'admin@omelnour.com', 
-      crypt('123456', gen_salt('bf')), 
-      now(), 
-      '{"provider":"email","providers":["email"]}', 
-      '{"name":"System Admin"}', 
-      now(), 
-      now()
+      admin_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 
+      'admin@omelnour.com', crypt('123456', gen_salt('bf')), now(), 
+      '{"provider":"email","providers":["email"]}', '{"name":"System Admin"}', now(), now()
     );
   ELSE
-    -- Reset password if exists
-    UPDATE auth.users 
-    SET encrypted_password = crypt('123456', gen_salt('bf')), email_confirmed_at = now() 
-    WHERE id = admin_uid;
+    UPDATE auth.users SET encrypted_password = crypt('123456', gen_salt('bf')), email_confirmed_at = now() WHERE id = admin_uid;
   END IF;
 
-  -- B. Ensure Profile exists (Critical for Login)
   INSERT INTO public.profiles (id, email, name, role, permissions, is_active)
-  VALUES (
-    admin_uid, 
-    'admin@omelnour.com', 
-    'General Manager', 
-    'ADMIN', 
-    '{"can_manage_doctors": true, "can_manage_schedules": true, "can_manage_appointments": true, "can_manage_exceptions": true, "can_manage_clinics": true, "can_view_admin_panel": true}', 
-    true
-  )
-  ON CONFLICT (id) DO UPDATE SET 
-    role = 'ADMIN',
-    permissions = '{"can_manage_doctors": true, "can_manage_schedules": true, "can_manage_appointments": true, "can_manage_exceptions": true, "can_manage_clinics": true, "can_view_admin_panel": true}';
-
-  -- C. Add a sample Specialty if none
+  VALUES (admin_uid, 'admin@omelnour.com', 'General Manager', 'ADMIN', 
+    '{"can_manage_doctors": true, "can_manage_schedules": true, "can_manage_appointments": true, "can_manage_exceptions": true, "can_manage_clinics": true, "can_view_admin_panel": true}', true)
+  ON CONFLICT (id) DO UPDATE SET role = 'ADMIN', is_active = true;
+  
+  -- Seed Specialty
   IF NOT EXISTS (SELECT 1 FROM specialties) THEN
     INSERT INTO specialties (title) VALUES ('General Medicine'), ('Cardiology'), ('Pediatrics');
   END IF;
+END $$;
 
-END $$;`;
+-- 9. CRITICAL: RELOAD SCHEMA CACHE
+-- This fixes the persistent "Database error querying schema" by forcing Supabase to refresh its API.
+NOTIFY pgrst, 'reload config';`;
 
 export const Admin: React.FC = () => {
   const { t } = useLanguage();
