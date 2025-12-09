@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth, useLanguage } from '../App';
+import { SQL_FIX_SCRIPT } from './Admin'; // Import the SQL fix script
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -7,6 +8,8 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showRepair, setShowRepair] = useState(false);
+  
   const { login } = useAuth();
   const { t, dir } = useLanguage();
 
@@ -27,6 +30,8 @@ export const Login: React.FC = () => {
     }
   };
 
+  const isDatabaseError = error.toLowerCase().includes('database') || error.toLowerCase().includes('schema') || error.toLowerCase().includes('function');
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 font-sans" dir={dir}>
       <div className="max-w-md w-full bg-white rounded-lg shadow-xl overflow-hidden">
@@ -36,7 +41,13 @@ export const Login: React.FC = () => {
         </div>
         <div className="p-8">
           <h2 className="text-2xl font-semibold text-gray-700 mb-6 text-center">{t.signIn}</h2>
-          {error && <div className="bg-red-50 text-red-500 p-3 rounded mb-4 text-sm font-medium border border-red-200">{error}</div>}
+          
+          {error && (
+             <div className="bg-red-50 text-red-500 p-3 rounded mb-4 text-sm font-medium border border-red-200">
+               {error}
+             </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-gray-600 text-sm font-medium mb-1">{t.email}</label>
@@ -88,10 +99,47 @@ export const Login: React.FC = () => {
                   admin@omelnour.com / 123456
               </div>
               <p className="text-xs text-gray-400 mt-2">{t.secureSystem}</p>
-              <a href="#/" className="block text-sm text-primary hover:underline">← {t.backToHome}</a>
+              
+              {isDatabaseError && (
+                 <button 
+                    onClick={() => setShowRepair(true)} 
+                    className="block w-full text-center text-red-600 hover:underline text-xs mt-4 font-bold"
+                 >
+                    🛠️ Database Error? Click here to fix system
+                 </button>
+              )}
+
+              <a href="#/" className="block text-sm text-primary hover:underline mt-2">← {t.backToHome}</a>
           </div>
         </div>
       </div>
+
+       {/* Repair Modal */}
+       {showRepair && (
+           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" dir="ltr">
+               <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+                   <div className="flex justify-between items-center mb-4">
+                       <h3 className="text-xl font-bold text-gray-800">🛠️ System Repair (SQL)</h3>
+                       <button onClick={() => setShowRepair(false)} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+                   </div>
+                   <div className="mb-4 text-sm text-gray-600 space-y-2">
+                       <p>It looks like the database setup is incomplete or corrupted.</p>
+                       <ol className="list-decimal list-inside space-y-1 ml-2 font-medium">
+                           <li>Copy the SQL code below.</li>
+                           <li>Go to your <b>Supabase Dashboard</b> {'>'} <b>SQL Editor</b>.</li>
+                           <li>Paste the code and click <b>Run</b>.</li>
+                       </ol>
+                   </div>
+                   <div className="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto flex-1 font-mono text-xs border border-gray-700">
+                       <pre>{SQL_FIX_SCRIPT}</pre>
+                   </div>
+                   <div className="flex justify-end gap-3 mt-4">
+                       <button onClick={() => navigator.clipboard.writeText(SQL_FIX_SCRIPT).then(() => alert('Copied to clipboard!'))} className="px-4 py-2 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded font-bold">Copy Code</button>
+                       <button onClick={() => setShowRepair(false)} className="px-4 py-2 bg-gray-200 text-gray-800 hover:bg-gray-300 rounded font-bold">Close</button>
+                   </div>
+               </div>
+           </div>
+       )}
     </div>
   );
 };

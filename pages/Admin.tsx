@@ -6,10 +6,17 @@ import { useLanguage, useAuth } from '../App';
 
 // SQL Script for user to fix missing RPCs and Tables
 // This has been updated to be the "Ultimate Fix" script
-const SQL_FIX_SCRIPT = `-- ==========================================
+export const SQL_FIX_SCRIPT = `-- ==========================================
 -- ULTIMATE DATABASE SETUP & FIX SCRIPT
 -- RUN THIS IN SUPABASE SQL EDITOR
 -- ==========================================
+
+-- 0. CLEANUP (Remove potential bad triggers causing login errors)
+-- This fixes the "Database error querying schema" issue
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+DROP TRIGGER IF EXISTS on_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.create_profile_for_user() CASCADE;
 
 -- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
