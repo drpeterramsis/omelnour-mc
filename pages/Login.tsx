@@ -10,7 +10,7 @@ export const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showRepair, setShowRepair] = useState(false);
   
-  const { login } = useAuth();
+  const { login, loginDemo } = useAuth();
   const { t, dir } = useLanguage();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -98,9 +98,24 @@ export const Login: React.FC = () => {
               {loading ? t.thinking : t.loginBtn}
             </button>
           </form>
+
+          {/* DEMO / OFFLINE MODE BUTTON */}
+          <div className="mt-4 pt-4 border-t">
+              <button 
+                onClick={loginDemo}
+                className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 rounded transition duration-200 mb-2 flex items-center justify-center gap-2"
+              >
+                  <span className="text-xl">🛠️</span> 
+                  Enter Demo Mode (Offline)
+              </button>
+              <p className="text-xs text-center text-gray-500">
+                  Use this if you are experiencing database connection errors.
+              </p>
+          </div>
+
           <div className="mt-6 text-center space-y-2">
               <div className="bg-yellow-50 p-2 rounded text-xs text-yellow-800 border border-yellow-200">
-                  <b>Demo Credentials:</b><br/>
+                  <b>Live Database Credentials:</b><br/>
                   admin@omelnour.com / 123456
               </div>
               <p className="text-xs text-gray-400 mt-2">{t.secureSystem}</p>

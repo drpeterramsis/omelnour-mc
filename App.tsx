@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole, DEFAULT_PERMISSIONS } from './types';
-import { db } from './services/db';
+import { db, enableMockMode } from './services/db';
 import { supabase } from './services/supabaseClient';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
@@ -30,6 +30,7 @@ interface LoginResult {
 interface AuthContextType {
   user: User | null;
   login: (e: string, p: string) => Promise<LoginResult>;
+  loginDemo: () => Promise<void>;
   logout: () => void;
   loading: boolean;
 }
@@ -114,7 +115,11 @@ const App: React.FC = () => {
                 await fetchProfile(session.user.id);
              }
         } else {
-            setUser(null);
+            // Only clear user if we are NOT in demo mode (demo mode doesn't have a session)
+            // But for simplicity, we rely on manual logout for demo
+            if (user?.id !== 'demo-admin') {
+                setUser(null);
+            }
             setLoading(false);
         }
     });
@@ -128,7 +133,6 @@ const App: React.FC = () => {
       
       if (error) {
           console.error("Profile Fetch Error:", error.message);
-          // If profile is missing, we must fail the "login" state in the UI
           setLoading(false);
           return null;
       }
@@ -139,7 +143,6 @@ const App: React.FC = () => {
           setLoading(false);
           return u;
       } else {
-          console.error("Profile missing from database.");
           setUser(null);
           setLoading(false);
           return null;
@@ -157,23 +160,36 @@ const App: React.FC = () => {
 
     // 2. If Auth successful, ensure Profile exists
     if (data.session?.user) {
-        // Force a fresh fetch to verify DB consistency
         const userProfile = await fetchProfile(data.session.user.id);
         
         if (userProfile) {
             return { success: true };
         } else {
-            // Auth worked but no profile? Sign out immediately to avoid stuck state
             await supabase.auth.signOut();
-            return { success: false, error: "Access Denied: User profile missing. Please contact Admin to run Database Setup SQL." };
+            return { success: false, error: "Access Denied: User profile missing. Please contact Admin." };
         }
     }
 
     return { success: false, error: "Session creation failed." };
   };
 
+  const loginDemo = async () => {
+      enableMockMode();
+      setUser({
+          id: 'demo-admin',
+          name: 'Demo Admin',
+          email: 'demo@omelnour.com',
+          role: UserRole.ADMIN,
+          is_active: true,
+          permissions: DEFAULT_PERMISSIONS.ADMIN
+      });
+      window.location.hash = '#/dashboard';
+  };
+
   const logout = async () => {
-    await supabase.auth.signOut();
+    if (user?.id !== 'demo-admin') {
+        await supabase.auth.signOut();
+    }
     setUser(null);
     window.location.hash = '#/';
   };
@@ -188,7 +204,7 @@ const App: React.FC = () => {
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage, t: translations[language], dir }}>
-      <AuthContext.Provider value={{ user, login, logout, loading }}>
+      <AuthContext.Provider value={{ user, login, loginDemo, logout, loading }}>
         <Router />
       </AuthContext.Provider>
     </LanguageContext.Provider>
