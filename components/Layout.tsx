@@ -150,7 +150,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       <footer className="bg-[#36454F] text-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-sm">
-             &copy; {new Date().getFullYear()} Clinica i-Mind | Dr. Peter Ramsis | v1.0.003
+             &copy; {new Date().getFullYear()} Clinica i-Mind | Dr. Peter Ramsis | v1.0.004
         </div>
       </footer>
     </div>
