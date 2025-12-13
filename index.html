@@ -1,52 +1,57 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Omelnour Medical Center</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="https://picsum.photos/32/32" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>جدول أطباء مركز أم النور الطبى</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <script>
       tailwind.config = {
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Cairo', 'sans-serif'],
+              sans: ['Alexandria', 'sans-serif'],
             },
             colors: {
-              primary: '#2270D4', // Primary Blue
-              medical: '#B33E3E', // Medical Red
-              neutral: '#C5B1BE', // Neutral Gray/Pinkish
-              dark: '#555555',    // Text Gray
-              light: '#FFFFFF',
+              medical: {
+                red: '#9e2a2f',
+                redHover: '#7d1f22',
+                blue: '#0353a8',
+                light: '#e2f5f5',
+                bg: '#f9f9f9',
+              },
+              primary: {
+                50: '#fef2f2',
+                100: '#fee2e2',
+                500: '#ef4444', 
+                600: '#9e2a2f', // Brand Red
+                700: '#b91c1c',
+                900: '#7f1d1d',
+              }
             }
           }
         }
       }
     </script>
-    <style>
-      body {
-        font-family: 'Cairo', sans-serif;
-        background-color: #F3F4F6;
-      }
-    </style>
   <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
     "react/": "https://aistudiocdn.com/react@^19.2.1/",
     "react": "https://aistudiocdn.com/react@^19.2.1",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.86.2"
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.1",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.87.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body>
+  <body class="bg-white text-gray-900 font-sans">
     <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>

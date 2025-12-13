@@ -1,61 +1,55 @@
 import { GoogleGenAI } from "@google/genai";
-import { Appointment } from "../types";
+import { Schedule, Doctor } from "../types";
 
-const initGenAI = () => {
-  if (!process.env.API_KEY) {
-    console.warn("Gemini API Key missing");
-    return null;
-  }
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
-};
+// In a real production app, ensure this is set.
+// For this demo context, we assume the environment variable is injected.
+const API_KEY = process.env.API_KEY || ''; 
 
-export const generateDailySummary = async (appointments: Appointment[]): Promise<string> => {
-  const ai = initGenAI();
-  if (!ai) return "Gemini API Key is missing. Please set it in the environment.";
+let ai: GoogleGenAI | null = null;
 
-  try {
-    const today = new Date().toISOString().split('T')[0];
-    const todayAppointments = appointments.filter(a => a.date === today);
+try {
+    if (API_KEY) {
+        ai = new GoogleGenAI({ apiKey: API_KEY });
+    }
+} catch (error) {
+    console.error("Failed to initialize Gemini Client", error);
+}
+
+export const generateScheduleSummary = async (schedules: Schedule[], doctors: Doctor[], userQuery: string): Promise<string> => {
+    if (!ai) return "عذراً، خدمة المساعد الذكي غير متوفرة حالياً (مفتاح API مفقود).";
+
+    // Prepare context data
+    const doctorMap = new Map(doctors.map(d => [d.id, d]));
     
-    if (todayAppointments.length === 0) return "No appointments scheduled for today.";
+    const scheduleContext = schedules.map(s => {
+        const doc = doctorMap.get(s.doctor_id);
+        return `- الدكتور ${doc?.name || 'غير معروف'} (${doc?.specialty}): ${s.day_of_week} من ${s.start_time} إلى ${s.end_time} ${s.is_cancelled ? '(ملغى)' : ''}`;
+    }).join('\n');
 
     const prompt = `
-      You are a medical receptionist assistant. Summarize the following schedule for today (${today}).
-      Highlight the total number of patients, any conflicts (if times overlap), and a breakdown of status.
-      
-      Data: ${JSON.stringify(todayAppointments.map(a => ({ 
-        time: a.time, 
-        patient: a.patient_name, 
-        status: a.status,
-        notes: a.notes 
-      })))}
-      
-      Keep the tone professional and concise.
+    أنت مساعد ذكي لمركز أم النور الطبي.
+    مهمتك مساعدة المرضى في معرفة مواعيد الأطباء.
+    
+    إليك جدول المواعيد الحالي:
+    ${scheduleContext}
+
+    قواعد الإجابة:
+    1. أجب باللغة العربية فقط.
+    2. كن مهذباً ومختصراً.
+    3. استخدم المعلومات الواردة في الجدول أعلاه فقط.
+    4. إذا كان الموعد ملغى، أخبر المريض بذلك بوضوح.
+
+    سؤال المريض: ${userQuery}
     `;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-    });
-
-    return response.text || "Could not generate summary.";
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    return "Error generating summary.";
-  }
-};
-
-export const askAssistant = async (question: string): Promise<string> => {
-    const ai = initGenAI();
-    if (!ai) return "API Key missing.";
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `You are a helpful assistant for Omelnour Medical Center. Answer this query concisely: ${question}`,
+            model: 'gemini-2.5-flash',
+            contents: prompt,
         });
-        return response.text || "No response";
-    } catch (e) {
-        return "Error connecting to AI assistant.";
+        return response.text || "لم أتمكن من فهم السؤال، يرجى المحاولة مرة أخرى.";
+    } catch (error) {
+        console.error("Gemini API Error:", error);
+        return "حدث خطأ أثناء الاتصال بالمساعد الذكي.";
     }
-}
+};
