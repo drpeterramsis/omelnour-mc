@@ -21,57 +21,46 @@ const Login: React.FC = () => {
         password,
       });
 
-      if (authError) throw authError;
+      if (authError) {
+          if (authError.message.includes('Invalid login credentials')) {
+              throw new Error("بيانات الدخول غير صحيحة. هل قمت بإنشاء المستخدم في لوحة تحكم Supabase؟");
+          }
+          throw authError;
+      }
 
       if (data.session) {
-        // 2. Check Profile Existence Safely
-        // specific try/catch for DB operations to separate Auth success from DB failure
-        try {
-            const { data: profile, error: profileError } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', data.user.id)
-                .maybeSingle(); // Use maybeSingle to avoid 406 Not Acceptable if no rows
+        // 2. Check Profile Existence
+        // We use maybeSingle to safely check if the row exists
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.user.id)
+            .maybeSingle();
 
-            if (profileError) {
-                console.error("Profile Query Error:", profileError);
-                // Detect missing table error
-                if (profileError.message.includes('does not exist') || profileError.code === '42P01') {
-                     throw new Error("الجداول غير موجودة في قاعدة البيانات. يرجى تشغيل كود SQL في Supabase.");
-                }
-            }
+        if (profileError) {
+             // If DB error (like table missing)
+             console.error("DB Error:", profileError);
+             throw new Error("خطأ في قاعدة البيانات (الجداول غير موجودة). يرجى تشغيل كود SQL.");
+        }
 
-            // 3. Create Profile if missing (First time login for existing Auth user)
-            if (!profile) {
-                const { error: insertError } = await supabase.from('profiles').insert([
-                    { id: data.user.id, email: data.user.email, role: 'receptionist' }
-                ]);
-                
-                if (insertError) {
-                    console.error("Profile Creation Error:", insertError);
-                     if (insertError.message.includes('does not exist') || insertError.code === '42P01') {
-                         throw new Error("الجداول غير موجودة. يرجى تشغيل كود SQL.");
-                    }
-                }
+        if (!profile) {
+            // Profile missing but Auth success. 
+            // Attempt to auto-fix by inserting profile (fallback if trigger didn't work)
+            const { error: insertError } = await supabase.from('profiles').insert([
+                { id: data.user.id, email: data.user.email, role: 'receptionist' }
+            ]);
+            
+            if (insertError) {
+                 console.error("Insert Error:", insertError);
+                 throw new Error("الحساب موجود ولكن لا يوجد ملف تعريف (Profile). تأكد من إعداد قاعدة البيانات.");
             }
-        } catch (dbErr: any) {
-            // If DB fails but Auth succeeded, warn the user but let them try to proceed (or stop them)
-            // We stop them if it's a critical missing table error
-            if (dbErr.message.includes("SQL")) {
-                throw dbErr;
-            }
-            console.warn("Non-critical DB warning:", dbErr);
         }
 
         navigate('/schedule-manager');
       }
     } catch (err: any) {
       console.error("Login Flow Error:", err);
-      let msg = 'حدث خطأ أثناء تسجيل الدخول';
-      if (err.message.includes('Invalid login credentials')) msg = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
-      if (err.message.includes('SQL')) msg = err.message; // Show our custom DB error
-      
-      setError(msg);
+      setError(err.message || 'حدث خطأ غير متوقع');
     } finally {
       setLoading(false);
     }
@@ -83,7 +72,7 @@ const Login: React.FC = () => {
         <h2 className="text-2xl font-bold text-center text-primary-900 mb-6">تسجيل دخول الموظفين</h2>
         
         {error && (
-          <div className={`p-3 rounded-md mb-4 text-sm font-bold ${error.includes('SQL') ? 'bg-red-100 text-red-800 border-r-4 border-red-600' : 'bg-red-50 text-red-600'}`}>
+          <div className="bg-red-50 text-red-700 p-4 rounded-md mb-4 text-sm border-r-4 border-red-600 font-medium">
             {error}
           </div>
         )}
@@ -97,7 +86,7 @@ const Login: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-              placeholder="example@omelnour.com"
+              placeholder="admin@omelnour.com"
             />
           </div>
 
@@ -122,8 +111,12 @@ const Login: React.FC = () => {
           </button>
         </form>
         
-        <div className="mt-4 text-center text-xs text-gray-500">
-            ملاحظة: إذا لم يكن لديك حساب، يرجى التواصل مع المسؤول التقني لإنشاء حساب لك في لوحة التحكم.
+        <div className="mt-6 text-center text-xs text-gray-500 bg-gray-50 p-3 rounded border border-gray-200">
+            <strong>تعليمات للمسؤول:</strong>
+            <ul className="list-disc list-inside mt-1 space-y-1">
+                <li>يجب إنشاء المستخدم أولاً في Supabase Dashboard &gt; Authentication.</li>
+                <li>تأكد من تشغيل كود SQL في Supabase Dashboard &gt; SQL Editor.</li>
+            </ul>
         </div>
       </div>
     </div>
