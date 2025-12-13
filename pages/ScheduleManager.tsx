@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { Doctor, Schedule } from '../types';
-import { Trash2, Edit, Plus, CheckCircle, XCircle, Calendar, Users } from 'lucide-react';
+import { Trash2, Edit, Plus, Calendar, Users, PenBox } from 'lucide-react';
 
 const DAYS_OPTIONS = [
   { value: "Sunday", label: "الأحد" },
@@ -21,6 +21,7 @@ const ScheduleManager: React.FC = () => {
   
   // Schedule Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [scheduleFormData, setScheduleFormData] = useState<Partial<Schedule>>({
       doctor_id: '',
       day_of_week: 'Sunday',
@@ -60,6 +61,32 @@ const ScheduleManager: React.FC = () => {
       fetchData();
   };
 
+  const openAddScheduleModal = () => {
+      setEditingSchedule(null);
+      setScheduleFormData({
+          doctor_id: '',
+          day_of_week: 'Sunday',
+          start_time: '09:00',
+          end_time: '17:00',
+          is_cancelled: false,
+          notes: ''
+      });
+      setIsModalOpen(true);
+  };
+
+  const openEditScheduleModal = (schedule: Schedule) => {
+      setEditingSchedule(schedule);
+      setScheduleFormData({
+          doctor_id: schedule.doctor_id,
+          day_of_week: schedule.day_of_week,
+          start_time: schedule.start_time,
+          end_time: schedule.end_time,
+          is_cancelled: schedule.is_cancelled,
+          notes: schedule.notes
+      });
+      setIsModalOpen(true);
+  };
+
   const handleScheduleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!scheduleFormData.doctor_id) {
@@ -67,30 +94,34 @@ const ScheduleManager: React.FC = () => {
           return;
       }
       
-      const { error } = await supabase.from('schedules').insert([scheduleFormData]);
+      let error;
+      if (editingSchedule) {
+          // Update existing
+          const { error: err } = await supabase
+            .from('schedules')
+            .update(scheduleFormData)
+            .eq('id', editingSchedule.id);
+          error = err;
+      } else {
+          // Create new
+          const { error: err } = await supabase
+            .from('schedules')
+            .insert([scheduleFormData]);
+          error = err;
+      }
+
       if (error) {
-          alert('خطأ في الإضافة: ' + error.message);
+          alert('خطأ في العملية: ' + error.message);
       } else {
           setIsModalOpen(false);
           fetchData();
-          setScheduleFormData({
-            doctor_id: '',
-            day_of_week: 'Sunday',
-            start_time: '09:00',
-            end_time: '17:00',
-            is_cancelled: false,
-            notes: ''
-          });
+          setEditingSchedule(null);
       }
   };
 
   // --- Doctor Handlers ---
   const handleDeleteDoctor = async (id: string) => {
       if (window.confirm('تحذير: حذف الطبيب سيؤدي لحذف جميع مواعيده. هل أنت متأكد؟')) {
-          // Delete schedules first (cascade should handle it if set up, but let's be safe or rely on DB)
-          // DB schema says "references public.doctors", usually requires cascade delete on table definition or manual delete.
-          // Supabase standard behavior depends on FK config. Assuming default RESTRICT, we might fail if we don't delete schedules.
-          // Let's try deleting schedules first for this doctor.
           await supabase.from('schedules').delete().eq('doctor_id', id);
           const { error } = await supabase.from('doctors').delete().eq('id', id);
           
@@ -145,7 +176,7 @@ const ScheduleManager: React.FC = () => {
         {/* Action Button based on Tab */}
         {activeTab === 'schedules' ? (
             <button 
-                onClick={() => setIsModalOpen(true)}
+                onClick={openAddScheduleModal}
                 className="bg-primary-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-primary-700 transition"
             >
                 <Plus size={20} />
@@ -195,8 +226,11 @@ const ScheduleManager: React.FC = () => {
                                           {schedule.is_cancelled ? 'ملغى' : 'نشط'}
                                       </button>
                                   </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                      <button onClick={() => handleDeleteSchedule(schedule.id)} className="text-red-600 hover:text-red-900 mx-2">
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex items-center gap-2">
+                                      <button onClick={() => openEditScheduleModal(schedule)} className="text-blue-600 hover:text-blue-900" title="تعديل الموعد">
+                                          <PenBox size={18} />
+                                      </button>
+                                      <button onClick={() => handleDeleteSchedule(schedule.id)} className="text-red-600 hover:text-red-900" title="حذف الموعد">
                                           <Trash2 size={18} />
                                       </button>
                                   </td>
@@ -240,11 +274,13 @@ const ScheduleManager: React.FC = () => {
           </div>
       )}
 
-      {/* === ADD SCHEDULE MODAL === */}
+      {/* === ADD/EDIT SCHEDULE MODAL === */}
       {isModalOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white p-6 rounded-lg w-full max-w-lg shadow-xl animate-fadeIn">
-                  <h2 className="text-xl font-bold mb-4 border-b pb-2">إضافة موعد جديد</h2>
+                  <h2 className="text-xl font-bold mb-4 border-b pb-2">
+                      {editingSchedule ? 'تعديل الموعد' : 'إضافة موعد جديد'}
+                  </h2>
                   <form onSubmit={handleScheduleSubmit} className="space-y-4">
                       <div>
                           <label className="block text-sm font-medium mb-1">الطبيب</label>
@@ -253,6 +289,7 @@ const ScheduleManager: React.FC = () => {
                             value={scheduleFormData.doctor_id}
                             onChange={(e) => setScheduleFormData({...scheduleFormData, doctor_id: e.target.value})}
                             required
+                            disabled={!!editingSchedule} // Disable changing doctor on edit to prevent confusion
                           >
                               <option value="">اختر الطبيب</option>
                               {doctors.map(d => (
@@ -320,7 +357,7 @@ const ScheduleManager: React.FC = () => {
                             type="submit" 
                             className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700"
                           >
-                              حفظ الموعد
+                              {editingSchedule ? 'تحديث الموعد' : 'حفظ الموعد'}
                           </button>
                       </div>
                   </form>

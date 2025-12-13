@@ -45,8 +45,20 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
  * -- 3. Policies
  * create policy "Public profiles are viewable by everyone." on public.profiles for select using (true);
  * create policy "Users can insert their own profile." on public.profiles for insert with check (auth.uid() = id);
- * create policy "Admins and Owners can delete profiles" on public.profiles for delete using (true);
- * create policy "Admins can update profiles." on public.profiles for update using (true);
+ * 
+ * -- NEW POLICY: Allow Admins to create profiles for other users
+ * create policy "Admins can insert any profile." on public.profiles for insert with check (
+ *   exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+ * );
+ * 
+ * create policy "Admins and Owners can delete profiles" on public.profiles for delete using (
+ *   (auth.uid() = id) OR 
+ *   (exists (select 1 from profiles where id = auth.uid() and role = 'admin'))
+ * );
+ * 
+ * create policy "Admins can update profiles." on public.profiles for update using (
+ *   exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+ * );
  * 
  * create policy "Doctors are viewable by everyone." on public.doctors for select using (true);
  * create policy "Staff can manage doctors." on public.doctors for all using (exists (select 1 from profiles where id = auth.uid() and role in ('admin', 'receptionist')));
@@ -54,7 +66,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
  * create policy "Schedules are viewable by everyone." on public.schedules for select using (true);
  * create policy "Staff can manage schedules." on public.schedules for all using (exists (select 1 from profiles where id = auth.uid() and role in ('admin', 'receptionist')));
  * 
- * -- 4. Auto-create Profile Trigger
+ * -- 4. Auto-create Profile Trigger (Optional if creating via Admin Panel)
  * create or replace function public.handle_new_user()
  * returns trigger as $$
  * begin
