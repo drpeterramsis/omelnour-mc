@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { UserProfile, UserRole } from '../types';
-import { ShieldAlert, UserPlus, Info, KeyRound, Check, Trash2 } from 'lucide-react';
+import { UserProfile, UserRole, AppConfig } from '../types';
+import { ShieldAlert, UserPlus, Info, KeyRound, Check, Trash2, Settings, ToggleLeft, ToggleRight } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 // Re-create a temporary client to handle signups without logging out the admin
-// Note: We use the same URL and Key from the main client.
-// In a production app, this should be done via Edge Functions.
 const SUPABASE_URL = 'https://cqyihsudqnzdzstvanko.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxeWloc3VkcW56ZHpzdHZhbmtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2NDc2NTEsImV4cCI6MjA4MTIyMzY1MX0.ciB_G-KitSBva4_x2e3j0gyTkw0nJwvN3NTUJmpT5aE';
 
 const AdminPanel: React.FC = () => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [appConfig, setAppConfig] = useState<AppConfig>({ id: 1, enable_client_signup: false });
+  const [configLoading, setConfigLoading] = useState(true);
   
   // Password Change State
   const [newPassword, setNewPassword] = useState('');
@@ -28,6 +28,7 @@ const AdminPanel: React.FC = () => {
 
   useEffect(() => {
     fetchProfiles();
+    fetchConfig();
   }, []);
 
   const fetchProfiles = async () => {
@@ -37,6 +38,32 @@ const AdminPanel: React.FC = () => {
         setProfiles(data as UserProfile[]);
     }
     setLoading(false);
+  };
+
+  const fetchConfig = async () => {
+      setConfigLoading(true);
+      const { data } = await supabase.from('app_config').select('*').single();
+      if (data) {
+          setAppConfig(data as AppConfig);
+      } else {
+          // If no row exists, try to insert default (fallback)
+          await supabase.from('app_config').insert([{ id: 1, enable_client_signup: false }]);
+      }
+      setConfigLoading(false);
+  };
+
+  const toggleClientSignup = async () => {
+      const newValue = !appConfig.enable_client_signup;
+      const { error } = await supabase
+        .from('app_config')
+        .update({ enable_client_signup: newValue })
+        .eq('id', 1); // Assuming single row config
+      
+      if (!error) {
+          setAppConfig({ ...appConfig, enable_client_signup: newValue });
+      } else {
+          alert("حدث خطأ أثناء تحديث الإعدادات: " + error.message);
+      }
   };
 
   const updateUserRole = async (id: string, newRole: UserRole) => {
@@ -54,9 +81,6 @@ const AdminPanel: React.FC = () => {
   };
 
   const deleteUser = async (id: string) => {
-      // Note: We can only delete the Profile row via RLS. The Auth User remains in Supabase
-      // unless we use the Admin API (server-side).
-      // However, deleting the profile effectively revokes access to the app due to checks in Layout.tsx
       if(window.confirm("تحذير: هذا سيحذف ملف المستخدم وصلاحياته من التطبيق. لا يمكن التراجع.")) {
           try {
               const { error } = await supabase.from('profiles').delete().eq('id', id);
@@ -104,7 +128,7 @@ const AdminPanel: React.FC = () => {
           // 1. Use a temporary client to sign up the user so we don't log out the Admin
           const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
               auth: {
-                  persistSession: false, // Important: Don't save this session to localStorage
+                  persistSession: false,
                   autoRefreshToken: false,
               }
           });
@@ -117,18 +141,17 @@ const AdminPanel: React.FC = () => {
           if (authError) throw authError;
 
           if (authData.user) {
-              // 2. Insert the profile row using the ADMIN'S connection (which has RLS rights)
-              // Note: The 'handle_new_user' trigger might have already created a row with 'receptionist'.
-              // We try to upsert to ensure the role is correct.
+              // 2. Insert/Update the profile row using the ADMIN'S connection
               const { error: profileError } = await supabase.from('profiles').upsert({
                   id: authData.user.id,
                   email: newUserEmail,
                   role: newUserRole
+                  // No full_name for staff for now, can be added later
               });
 
               if (profileError) {
                   console.error(profileError);
-                  throw new Error("تم إنشاء الحساب ولكن فشل إعداد الصلاحيات. تأكد من تحديث كود SQL.");
+                  throw new Error("تم إنشاء الحساب ولكن فشل إعداد الصلاحيات.");
               }
 
               setCreateUserMessage("تم إنشاء المستخدم بنجاح! ✅");
@@ -146,18 +169,46 @@ const AdminPanel: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
+    <div className="max-w-6xl mx-auto p-4">
         <div className="flex items-center gap-3 mb-6 border-b pb-4">
             <ShieldAlert className="text-red-600 w-8 h-8" />
             <h1 className="text-3xl font-bold text-gray-900">لوحة تحكم المسؤول</h1>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            {/* Create User Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            
+            {/* 1. Control Room (New Feature) */}
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 shadow-sm h-fit">
+                <h3 className="font-bold text-purple-900 flex items-center gap-2 mb-4 text-lg">
+                    <Settings size={24} />
+                    غرفة التحكم بالموقع
+                </h3>
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between bg-white p-3 rounded border border-purple-100">
+                        <div>
+                            <span className="block font-bold text-gray-800 text-sm">تسجيل المرضى (Clients)</span>
+                            <span className="text-xs text-gray-500">السماح للزوار بإنشاء حسابات جديدة</span>
+                        </div>
+                        <button 
+                            onClick={toggleClientSignup}
+                            disabled={configLoading}
+                            className={`transition-colors duration-200 ${appConfig.enable_client_signup ? 'text-green-600' : 'text-gray-400 hover:text-gray-600'}`}
+                        >
+                            {appConfig.enable_client_signup ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                        </button>
+                    </div>
+                    {/* Placeholder for future toggles */}
+                    <div className="text-xs text-center text-purple-800 opacity-70 mt-2">
+                        * سيتم إضافة المزيد من إعدادات التحكم هنا.
+                    </div>
+                </div>
+            </div>
+
+            {/* 2. Create User Section */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 shadow-sm">
                 <h3 className="font-bold text-blue-900 flex items-center gap-2 mb-4 text-lg">
                     <UserPlus size={24} />
-                    إضافة موظف جديد
+                    إضافة موظف / طبيب
                 </h3>
                 <form onSubmit={handleCreateUser} className="space-y-3">
                     <div>
@@ -190,7 +241,9 @@ const AdminPanel: React.FC = () => {
                             onChange={(e) => setNewUserRole(e.target.value as UserRole)}
                         >
                             <option value={UserRole.RECEPTIONIST}>استقبال (Receptionist)</option>
+                            <option value={UserRole.DOCTOR}>طبيب (Doctor)</option>
                             <option value={UserRole.ADMIN}>مدير (Admin)</option>
+                            <option value={UserRole.PATIENT}>مريض (Client)</option>
                         </select>
                     </div>
                     <button 
@@ -198,7 +251,7 @@ const AdminPanel: React.FC = () => {
                         disabled={createUserLoading}
                         className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow"
                     >
-                        {createUserLoading ? 'جاري الإنشاء...' : 'إنشاء المستخدم'}
+                        {createUserLoading ? 'جاري الإنشاء...' : 'إنشاء الحساب'}
                     </button>
                     {createUserMessage && (
                         <p className={`text-xs font-bold text-center mt-2 ${createUserMessage.includes('نجاح') ? 'text-green-600' : 'text-red-600'}`}>
@@ -208,7 +261,7 @@ const AdminPanel: React.FC = () => {
                 </form>
             </div>
 
-            {/* Change Admin Password Section */}
+            {/* 3. Change Password Section */}
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 shadow-sm h-fit">
                 <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-4 text-lg">
                     <KeyRound size={24} />
@@ -235,13 +288,10 @@ const AdminPanel: React.FC = () => {
                         </p>
                     )}
                 </form>
-                <div className="mt-4 text-xs text-gray-500 bg-white p-2 rounded border">
-                    <p className="font-bold flex items-center gap-1"><Info size={14}/> ملاحظة:</p>
-                    ميزة إنشاء المستخدمين تعمل من داخل التطبيق. إذا واجهت مشاكل، تأكد من تحديث سياسات الأمان (SQL) في Supabase.
-                </div>
             </div>
         </div>
 
+        {/* User Management Table */}
         <div className="bg-white shadow rounded-lg overflow-hidden border">
              <div className="bg-gray-100 px-6 py-4 border-b">
                 <h3 className="text-lg font-bold text-gray-800">إدارة المستخدمين والصلاحيات</h3>
@@ -249,49 +299,62 @@ const AdminPanel: React.FC = () => {
             {loading ? (
                 <div className="text-center py-10">جاري التحميل...</div>
             ) : (
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">البريد الإلكتروني</th>
-                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الصلاحية الحالية</th>
-                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تعديل</th>
-                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {profiles.map(profile => (
-                            <tr key={profile.id} className="hover:bg-gray-50 transition">
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium" dir="ltr">{profile.email}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    <span className={`px-2 py-1 rounded-full text-xs font-bold border ${profile.role === UserRole.ADMIN ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-blue-100 text-blue-800 border-blue-200'}`}>
-                                        {profile.role === UserRole.ADMIN ? 'مدير (Admin)' : 'استقبال (Receptionist)'}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                    <select 
-                                        className="border rounded p-1 text-sm bg-white focus:ring-2 focus:ring-medical-blue outline-none"
-                                        value={profile.role}
-                                        onChange={(e) => updateUserRole(profile.id, e.target.value as UserRole)}
-                                        disabled={profile.email === 'admin@omelnour.com'} // Prevent changing main admin role easily
-                                    >
-                                        <option value={UserRole.ADMIN}>مدير</option>
-                                        <option value={UserRole.RECEPTIONIST}>استقبال</option>
-                                    </select>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                    <button 
-                                        onClick={() => deleteUser(profile.id)}
-                                        className="text-red-500 hover:text-red-700 disabled:opacity-30"
-                                        title="حذف المستخدم"
-                                        disabled={profile.email === 'admin@omelnour.com'}
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
-                                </td>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المستخدم</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الصلاحية الحالية</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تعديل</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجراءات</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {profiles.map(profile => (
+                                <tr key={profile.id} className="hover:bg-gray-50 transition">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900" dir="ltr">
+                                        <div className="font-bold">{profile.email}</div>
+                                        {profile.full_name && <div className="text-xs text-gray-500">{profile.full_name}</div>}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-bold border 
+                                            ${profile.role === UserRole.ADMIN ? 'bg-purple-100 text-purple-800 border-purple-200' : 
+                                              profile.role === UserRole.DOCTOR ? 'bg-green-100 text-green-800 border-green-200' : 
+                                              profile.role === UserRole.RECEPTIONIST ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                                              'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                                            {profile.role === UserRole.ADMIN ? 'مدير (Admin)' : 
+                                             profile.role === UserRole.DOCTOR ? 'طبيب (Doctor)' : 
+                                             profile.role === UserRole.RECEPTIONIST ? 'استقبال (Employee)' : 'مريض (Client)'}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <select 
+                                            className="border rounded p-1 text-sm bg-white focus:ring-2 focus:ring-medical-blue outline-none"
+                                            value={profile.role}
+                                            onChange={(e) => updateUserRole(profile.id, e.target.value as UserRole)}
+                                            disabled={profile.email === 'admin@omelnour.com' || profile.email === 'drpeterramsis@gmail.com'} 
+                                        >
+                                            <option value={UserRole.ADMIN}>مدير</option>
+                                            <option value={UserRole.DOCTOR}>طبيب</option>
+                                            <option value={UserRole.RECEPTIONIST}>استقبال</option>
+                                            <option value={UserRole.PATIENT}>مريض</option>
+                                        </select>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <button 
+                                            onClick={() => deleteUser(profile.id)}
+                                            className="text-red-500 hover:text-red-700 disabled:opacity-30"
+                                            title="حذف المستخدم"
+                                            disabled={profile.email === 'admin@omelnour.com' || profile.email === 'drpeterramsis@gmail.com'}
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             )}
              {profiles.length === 0 && <div className="p-4 text-center text-gray-500">لا يوجد مستخدمين مسجلين حالياً.</div>}
         </div>

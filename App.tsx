@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Login from './pages/Login';
+import ClientSignup from './pages/ClientSignup';
 import ScheduleManager from './pages/ScheduleManager';
 import AdminPanel from './pages/AdminPanel';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -13,11 +14,10 @@ const App: React.FC = () => {
     <HashRouter>
       <Layout>
         <Routes>
-          {/* Public Route */}
+          {/* Public Routes */}
           <Route path="/" element={<Home />} />
-          
-          {/* Login */}
           <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<ClientSignup />} />
           
           {/* Receptionist & Admin Routes */}
           <Route 

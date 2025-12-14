@@ -1,13 +1,15 @@
 export enum UserRole {
   ADMIN = 'admin',
-  RECEPTIONIST = 'receptionist',
-  PATIENT = 'patient' // Implicit for non-logged in
+  RECEPTIONIST = 'receptionist', // Acts as Employee/Staff
+  DOCTOR = 'doctor',
+  PATIENT = 'patient' // Implicit for non-logged in (Client)
 }
 
 export interface UserProfile {
   id: string; // uuid from auth.users
   email: string;
   role: UserRole;
+  full_name?: string;
   created_at?: string;
 }
 
@@ -32,4 +34,9 @@ export interface Schedule {
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
+}
+
+export interface AppConfig {
+  id: number;
+  enable_client_signup: boolean;
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -23,14 +23,13 @@ const Login: React.FC = () => {
 
       if (authError) {
           if (authError.message.includes('Invalid login credentials')) {
-              throw new Error("بيانات الدخول غير صحيحة. هل قمت بإنشاء المستخدم في لوحة تحكم Supabase؟");
+              throw new Error("بيانات الدخول غير صحيحة.");
           }
           throw authError;
       }
 
       if (data.session) {
         // 2. Check Profile Existence
-        // We use maybeSingle to safely check if the row exists
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
@@ -38,25 +37,32 @@ const Login: React.FC = () => {
             .maybeSingle();
 
         if (profileError) {
-             // If DB error (like table missing)
              console.error("DB Error:", profileError);
-             throw new Error("خطأ في قاعدة البيانات (الجداول غير موجودة). يرجى تشغيل كود SQL.");
+             throw new Error("خطأ في قاعدة البيانات (الجداول غير موجودة).");
         }
 
         if (!profile) {
-            // Profile missing but Auth success. 
-            // Attempt to auto-fix by inserting profile (fallback if trigger didn't work)
+            // Self-repair: Create profile if missing
+            const adminEmails = ['admin@omelnour.com', 'drpeterramsis@gmail.com'];
+            const assignedRole = adminEmails.includes(data.user.email || '') ? 'admin' : 'patient';
+
             const { error: insertError } = await supabase.from('profiles').insert([
-                { id: data.user.id, email: data.user.email, role: 'receptionist' }
+                { id: data.user.id, email: data.user.email, role: assignedRole }
             ]);
             
             if (insertError) {
                  console.error("Insert Error:", insertError);
-                 throw new Error("الحساب موجود ولكن لا يوجد ملف تعريف (Profile). تأكد من إعداد قاعدة البيانات.");
+                 throw new Error("فشل إنشاء ملف المستخدم.");
             }
         }
 
-        navigate('/schedule-manager');
+        // Navigate based on role (refetch to be sure)
+        const { data: finalProfile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
+        if (finalProfile?.role === 'admin' || finalProfile?.role === 'receptionist') {
+            navigate('/schedule-manager');
+        } else {
+            navigate('/'); // Patients go home
+        }
       }
     } catch (err: any) {
       console.error("Login Flow Error:", err);
@@ -69,7 +75,7 @@ const Login: React.FC = () => {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h2 className="text-2xl font-bold text-center text-primary-900 mb-6">تسجيل دخول الموظفين</h2>
+        <h2 className="text-2xl font-bold text-center text-primary-900 mb-6">تسجيل الدخول</h2>
         
         {error && (
           <div className="bg-red-50 text-red-700 p-4 rounded-md mb-4 text-sm border-r-4 border-red-600 font-medium">
@@ -86,7 +92,7 @@ const Login: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-              placeholder="admin@omelnour.com"
+              placeholder="name@example.com"
             />
           </div>
 
@@ -111,12 +117,8 @@ const Login: React.FC = () => {
           </button>
         </form>
         
-        <div className="mt-6 text-center text-xs text-gray-500 bg-gray-50 p-3 rounded border border-gray-200">
-            <strong>تعليمات للمسؤول:</strong>
-            <ul className="list-disc list-inside mt-1 space-y-1">
-                <li>يجب إنشاء المستخدم أولاً في Supabase Dashboard &gt; Authentication.</li>
-                <li>تأكد من تشغيل كود SQL في Supabase Dashboard &gt; SQL Editor.</li>
-            </ul>
+        <div className="mt-6 text-center text-xs text-gray-500">
+             إذا كنت تواجه مشاكل في الدخول، يرجى مراجعة إدارة المركز.
         </div>
       </div>
     </div>

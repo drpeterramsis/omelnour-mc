@@ -11,10 +11,12 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [enableSignup, setEnableSignup] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
+    // Check Auth State
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
@@ -27,15 +29,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         if (data) {
             setProfile(data as UserProfile);
         } else {
-            setProfile({ id: session.user.id, email: session.user.email!, role: UserRole.RECEPTIONIST });
+            // Default Fallback
+            setProfile({ id: session.user.id, email: session.user.email!, role: UserRole.PATIENT });
         }
       } else {
         setProfile(null);
       }
     };
 
-    checkUser();
+    // Check App Config for Signup visibility
+    const checkConfig = async () => {
+        const { data } = await supabase.from('app_config').select('enable_client_signup').single();
+        if (data) {
+            setEnableSignup(data.enable_client_signup);
+        }
+    };
 
+    checkUser();
+    checkConfig();
+
+    // Listen for Auth Changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session) {
              const { data } = await supabase
@@ -48,9 +61,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             setProfile(null);
         }
     });
+    
+    // Subscribe to Config Changes (Optional, but nice for real-time updates)
+    const configSub = supabase
+      .channel('public:app_config')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_config' }, (payload) => {
+         if (payload.new) {
+             setEnableSignup((payload.new as any).enable_client_signup);
+         }
+      })
+      .subscribe();
 
     return () => {
       authListener.subscription.unsubscribe();
+      supabase.removeChannel(configSub);
     };
   }, []);
 
@@ -60,11 +84,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     navigate('/');
   };
 
-  const isHome = location.pathname === '/';
-
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      {/* Top Navigation - Admin/Staff links only visible if logged in, or simplified for public */}
+      {/* Top Navigation */}
       <nav className="bg-medical-red text-white shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14">
@@ -80,25 +102,38 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Link to="/" className="hover:bg-medical-redHover px-3 py-1 rounded transition">الرئيسية</Link>
               
               {!profile && (
-                 <Link to="/login" className="hover:bg-medical-redHover px-3 py-1 rounded transition">
-                   دخول الموظفين
-                 </Link>
+                 <>
+                   {enableSignup && (
+                     <Link to="/signup" className="bg-white text-medical-red hover:bg-gray-100 px-3 py-1 rounded transition font-bold">
+                       تسجيل مريض جديد
+                     </Link>
+                   )}
+                   <Link to="/login" className="hover:bg-medical-redHover px-3 py-1 rounded transition">
+                     دخول الموظفين
+                   </Link>
+                 </>
               )}
 
               {profile && (
                 <>
-                  <Link to="/schedule-manager" className="hover:bg-medical-redHover px-3 py-1 rounded transition">
-                    إدارة الجداول
-                  </Link>
+                  {(profile.role === UserRole.ADMIN || profile.role === UserRole.RECEPTIONIST) && (
+                     <Link to="/schedule-manager" className="hover:bg-medical-redHover px-3 py-1 rounded transition">
+                       إدارة الجداول
+                     </Link>
+                  )}
                   {profile.role === UserRole.ADMIN && (
                     <Link to="/admin" className="hover:bg-medical-redHover px-3 py-1 rounded transition">
                       لوحة التحكم
                     </Link>
                   )}
+                  {/* Patient Menu Items could go here in future */}
+                  
                   <div className="flex items-center space-x-4 space-x-reverse border-r border-red-800 pr-4 mr-4">
                      <span className="text-sm text-red-100 flex items-center">
                         <User className="w-4 h-4 ml-1" />
-                        {profile.role === UserRole.ADMIN ? 'مدير' : 'استقبال'}
+                        {profile.role === UserRole.ADMIN ? 'مدير' : 
+                         profile.role === UserRole.DOCTOR ? 'طبيب' : 
+                         profile.role === UserRole.RECEPTIONIST ? 'استقبال' : 'مريض'}
                      </span>
                      <button onClick={handleLogout} className="text-red-200 hover:text-white p-2">
                         <LogOut className="w-5 h-5" />
@@ -127,17 +162,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Link to="/" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">الرئيسية</Link>
               {profile && (
                 <>
-                    <Link to="/schedule-manager" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">إدارة الجداول</Link>
+                    {(profile.role === UserRole.ADMIN || profile.role === UserRole.RECEPTIONIST) && (
+                        <Link to="/schedule-manager" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">إدارة الجداول</Link>
+                    )}
                     {profile.role === UserRole.ADMIN && (
                         <Link to="/admin" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">لوحة التحكم</Link>
                     )}
-                    <button onClick={handleLogout} className="w-full text-right block px-3 py-2 rounded-md text-base font-medium text-red-200 hover:text-white hover:bg-medical-redHover">تسجيل خروج</button>
+                    <button onClick={handleLogout} className="w-full text-right block px-3 py-2 rounded-md text-base font-medium text-red-200 hover:text-white hover:bg-medical-redHover">تسجيل خروج ({profile.role})</button>
                 </>
               )}
                {!profile && (
-                 <Link to="/login" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">
-                   دخول الموظفين
-                 </Link>
+                 <>
+                   {enableSignup && (
+                     <Link to="/signup" className="block px-3 py-2 rounded-md text-base font-medium bg-white text-medical-red mb-1">
+                       تسجيل مريض جديد
+                     </Link>
+                   )}
+                   <Link to="/login" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">
+                     دخول الموظفين
+                   </Link>
+                 </>
               )}
             </div>
           </div>
@@ -150,7 +194,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       <footer className="bg-[#36454F] text-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-sm">
-             &copy; {new Date().getFullYear()} Clinica i-Mind | Dr. Peter Ramsis | v1.0.011
+             &copy; {new Date().getFullYear()} Clinica i-Mind | Dr. Peter Ramsis | v1.0.015
         </div>
       </footer>
     </div>
