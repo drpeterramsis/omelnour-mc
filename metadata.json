@@ -1,5 +1,5 @@
 {
-  "name": "Copy of Omelnour Medical Center _ Check02 - 1.0.015",
-  "description": "A medical center management system with public schedule viewing and admin controls. Features Arabic interface.",
+  "name": "Om-Elnour Medical Center",
+  "description": "A comprehensive medical center management application in Arabic, featuring doctor scheduling, admin controls for staff management, and an AI assistant for patients.",
   "requestFramePermissions": []
 }

@@ -2,56 +2,44 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="https://picsum.photos/32/32" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>جدول أطباء مركز أم النور الطبى</title>
+    <title>مركز أم النور الطبي - Om-Elnour Medical Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         theme: {
           extend: {
-            fontFamily: {
-              sans: ['Alexandria', 'sans-serif'],
-            },
             colors: {
-              medical: {
-                red: '#9e2a2f',
-                redHover: '#7d1f22',
-                blue: '#0353a8',
-                light: '#e2f5f5',
-                bg: '#f9f9f9',
-              },
-              primary: {
-                50: '#fef2f2',
-                100: '#fee2e2',
-                500: '#ef4444', 
-                600: '#9e2a2f', // Brand Red
-                700: '#b91c1c',
-                900: '#7f1d1d',
-              }
-            }
-          }
-        }
+              primary: '#1e40af', // Blue 800
+              secondary: '#dc2626', // Red 600
+              accent: '#f8fafc', // Slate 50
+            },
+            fontFamily: {
+              sans: ['Tajawal', 'sans-serif'],
+            },
+          },
+        },
       }
     </script>
+    <style>
+      body {
+        font-family: 'Tajawal', sans-serif;
+      }
+    </style>
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.1",
-    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.87.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/"
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-white text-gray-900 font-sans">
+  <body class="bg-gray-50 text-gray-900">
     <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>

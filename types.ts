@@ -1,38 +1,36 @@
-export type UserRole = 'admin' | 'employee' | 'patient';
+export enum Role {
+  ADMIN = 'ADMIN',
+  DOCTOR = 'DOCTOR',
+  RECEPTIONIST = 'RECEPTIONIST',
+  USER = 'USER'
+}
 
-export interface UserProfile {
-  id: string; // uuid from auth.users
+export interface User {
+  id: string;
   email: string;
-  role: UserRole;
-  authority: string; // 'user', 'super_user', etc.
-  full_name?: string;
-  created_at?: string;
+  name: string;
+  role: Role;
+}
+
+export interface ScheduleSlot {
+  day: string; // e.g., "Monday"
+  startTime: string; // "09:00"
+  endTime: string; // "14:00"
+  isException?: boolean;
+  isCancelled?: boolean;
 }
 
 export interface Doctor {
   id: string;
   name: string;
   specialty: string;
-  image_url?: string;
+  photoUrl?: string;
+  schedule: ScheduleSlot[];
+  isActive: boolean;
 }
 
-export interface Schedule {
-  id: string;
-  doctor_id: string;
-  day_of_week: string; // "Monday", "Tuesday", etc.
-  start_time: string; // "09:00"
-  end_time: string; // "14:00"
-  is_cancelled: boolean;
-  notes?: string;
-  doctor?: Doctor; // Joined fields
-}
-
-export interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-}
-
-export interface AppConfig {
-  id: number;
-  enable_client_signup: boolean;
+export interface AppState {
+  currentUser: User | null;
+  doctors: Doctor[];
+  users: User[];
 }
