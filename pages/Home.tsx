@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { Doctor, Schedule } from '../types';
-import { ChevronDown, ChevronUp, Printer, Phone, Search } from 'lucide-react';
+import { ChevronDown, ChevronUp, Printer, Phone, Search, AlertCircle, RefreshCw } from 'lucide-react';
 
 const DAYS_ARABIC: Record<string, string> = {
   "Sunday": "الأحد",
@@ -22,6 +22,7 @@ const Home: React.FC = () => {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Filters
   const [selectedDay, setSelectedDay] = useState<string>('all');
@@ -48,25 +49,46 @@ const Home: React.FC = () => {
   }, []);
 
   const fetchData = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const { data: doctorsData, error: docError } = await supabase.from('doctors').select('*');
-      if (docError) throw docError;
+      // Parallel fetch for better performance
+      const [doctorsResponse, schedulesResponse] = await Promise.all([
+        supabase.from('doctors').select('*'),
+        supabase.from('schedules').select('*')
+      ]);
 
-      const { data: schedulesData, error: schError } = await supabase.from('schedules').select('*');
-      if (schError) throw schError;
+      if (doctorsResponse.error) throw doctorsResponse.error;
+      if (schedulesResponse.error) throw schedulesResponse.error;
 
-      setDoctors(doctorsData || []);
-      setSchedules(schedulesData || []);
+      const doctorsData = doctorsResponse.data || [];
+      const schedulesData = schedulesResponse.data || [];
+
+      setDoctors(doctorsData);
+      setSchedules(schedulesData);
       
       // Extract unique specialties
-      const specialties = Array.from(new Set(doctorsData?.map(d => d.specialty) || []));
+      const specialties = Array.from(new Set(doctorsData.map(d => d.specialty).filter(Boolean)));
       setAvailableSpecialties(specialties);
-      // Select all by default or none? Old site had them all unchecked by default in code, but UI implies selection. 
-      // Let's select none initially to force user interaction like old site, or all.
-      // Old site: "checkbox.checked = false;" in code.
       setSelectedSpecialties([]); 
-    } catch (error) {
-      console.error('Error fetching data:', error);
+    } catch (err: any) {
+      // Safely handle error object to avoid [object Object]
+      const errorObj = err || {};
+      const errorMessage = errorObj.message || (typeof err === 'string' ? err : JSON.stringify(err));
+      console.error('Error fetching data:', errorMessage);
+
+      let displayMsg = 'حدث خطأ غير معروف أثناء تحميل البيانات.';
+
+      if (typeof errorMessage === 'string') {
+          // Check for missing table error (Postgres code 42P01)
+          if (errorObj.code === '42P01' || errorMessage.includes('relation') && errorMessage.includes('does not exist')) {
+              displayMsg = 'قاعدة البيانات غير جاهزة. يرجى نسخ كود SQL من ملف supabaseClient.ts وتشغيله في لوحة تحكم Supabase.';
+          } else if (errorMessage) {
+              displayMsg = errorMessage;
+          }
+      }
+      
+      setError(displayMsg);
     } finally {
       setLoading(false);
     }
@@ -132,7 +154,7 @@ const Home: React.FC = () => {
             مواعيد اطباء العيادات التخصصية
         </h1>
 
-        {/* Date Navigation (Simplified to Day Filter for now as per React app structure) */}
+        {/* Date Navigation */}
         <div className="bg-gray-50 p-4 rounded-xl shadow-sm border border-gray-200 mb-4">
             <div className="flex flex-wrap gap-2 justify-center mb-4">
                  <button 
@@ -142,7 +164,7 @@ const Home: React.FC = () => {
                     اليوم 📅
                  </button>
                  <button 
-                     onClick={() => {}} // In a full implementation, this would trigger search logic
+                     onClick={() => {}} 
                      className="bg-medical-red hover:bg-medical-redHover text-white px-6 py-2 rounded-lg font-bold shadow transition flex items-center gap-2"
                  >
                     بحث <Search size={16} />
@@ -240,9 +262,21 @@ const Home: React.FC = () => {
         {/* 4. Schedule Grid/Table */}
         {loading ? (
              <div className="flex justify-center p-10"><div className="w-10 h-10 border-4 border-gray-200 border-l-medical-blue rounded-full animate-spin"></div></div>
+        ) : error ? (
+            <div className="mx-4 p-6 bg-red-50 border border-red-200 rounded-xl text-center shadow-sm">
+                <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-2" />
+                <h3 className="text-lg font-bold text-red-800 mb-2">تعذر تحميل البيانات</h3>
+                <p className="text-red-600 mb-4 font-mono text-sm" dir="ltr">{error}</p>
+                <button 
+                    onClick={fetchData} 
+                    className="inline-flex items-center gap-2 bg-red-100 text-red-800 px-4 py-2 rounded-lg hover:bg-red-200 transition font-bold"
+                >
+                    <RefreshCw size={18} /> محاولة مرة أخرى
+                </button>
+            </div>
         ) : (
             <div id="schedule-print-area" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                {selectedSpecialties.length === 0 && !loading && (
+                {selectedSpecialties.length === 0 && (
                     <div className="col-span-full text-center py-10 text-gray-500 italic bg-gray-50 rounded-lg border border-dashed">
                         يرجى اختيار تخصص واحد على الأقل من القائمة أعلاه لعرض المواعيد.
                     </div>

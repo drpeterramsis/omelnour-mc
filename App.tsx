@@ -7,7 +7,6 @@ import ClientSignup from './pages/ClientSignup';
 import ScheduleManager from './pages/ScheduleManager';
 import AdminPanel from './pages/AdminPanel';
 import ProtectedRoute from './components/ProtectedRoute';
-import { UserRole } from './types';
 
 const App: React.FC = () => {
   return (
@@ -19,11 +18,11 @@ const App: React.FC = () => {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<ClientSignup />} />
           
-          {/* Receptionist & Admin Routes */}
+          {/* Employee & Admin Routes */}
           <Route 
             path="/schedule-manager" 
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.RECEPTIONIST]}>
+              <ProtectedRoute allowedRoles={['admin', 'employee']}>
                 <ScheduleManager />
               </ProtectedRoute>
             } 
@@ -33,7 +32,7 @@ const App: React.FC = () => {
           <Route 
             path="/admin" 
             element={
-              <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+              <ProtectedRoute allowedRoles={['admin']}>
                 <AdminPanel />
               </ProtectedRoute>
             } 

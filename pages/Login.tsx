@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -15,57 +15,34 @@ const Login: React.FC = () => {
     setError(null);
 
     try {
-      // 1. Authenticate User
+      // 1. Authenticate
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (authError) {
-          if (authError.message.includes('Invalid login credentials')) {
-              throw new Error("بيانات الدخول غير صحيحة.");
-          }
-          throw authError;
-      }
+      if (authError) throw new Error("بيانات الدخول غير صحيحة.");
 
       if (data.session) {
-        // 2. Check Profile Existence
+        // 2. Fetch Profile Role
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', data.user.id)
-            .maybeSingle();
+            .single();
 
         if (profileError) {
-             console.error("DB Error:", profileError);
-             throw new Error("خطأ في قاعدة البيانات (الجداول غير موجودة).");
+             // In rare case trigger didn't fire, create profile now
+             await supabase.from('profiles').insert([{ id: data.user.id, email: data.user.email }]);
         }
 
-        if (!profile) {
-            // Self-repair: Create profile if missing
-            const adminEmails = ['admin@omelnour.com', 'drpeterramsis@gmail.com'];
-            const assignedRole = adminEmails.includes(data.user.email || '') ? 'admin' : 'patient';
+        const role = profile?.role || 'patient';
 
-            const { error: insertError } = await supabase.from('profiles').insert([
-                { id: data.user.id, email: data.user.email, role: assignedRole }
-            ]);
-            
-            if (insertError) {
-                 console.error("Insert Error:", insertError);
-                 throw new Error("فشل إنشاء ملف المستخدم.");
-            }
-        }
-
-        // Navigate based on role (refetch to be sure)
-        const { data: finalProfile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
-        if (finalProfile?.role === 'admin' || finalProfile?.role === 'receptionist') {
-            navigate('/schedule-manager');
-        } else {
-            navigate('/'); // Patients go home
-        }
+        if (role === 'admin') navigate('/admin');
+        else if (role === 'employee') navigate('/schedule-manager');
+        else navigate('/');
       }
     } catch (err: any) {
-      console.error("Login Flow Error:", err);
       setError(err.message || 'حدث خطأ غير متوقع');
     } finally {
       setLoading(false);
@@ -75,10 +52,10 @@ const Login: React.FC = () => {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h2 className="text-2xl font-bold text-center text-primary-900 mb-6">تسجيل الدخول</h2>
+        <h2 className="text-2xl font-bold text-center text-medical-red mb-6">تسجيل الدخول</h2>
         
         {error && (
-          <div className="bg-red-50 text-red-700 p-4 rounded-md mb-4 text-sm border-r-4 border-red-600 font-medium">
+          <div className="bg-red-50 text-red-700 p-4 rounded-md mb-4 text-sm font-bold border border-red-200">
             {error}
           </div>
         )}
@@ -91,8 +68,7 @@ const Login: React.FC = () => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-              placeholder="name@example.com"
+              className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-medical-blue outline-none"
             />
           </div>
 
@@ -103,23 +79,18 @@ const Login: React.FC = () => {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-              placeholder="********"
+              className="w-full px-4 py-2 border rounded-md focus:ring-2 focus:ring-medical-blue outline-none"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-primary-600 text-white py-2 rounded-md font-bold hover:bg-primary-700 transition disabled:opacity-50"
+            className="w-full bg-medical-red text-white py-2 rounded-md font-bold hover:bg-red-800 transition disabled:opacity-50"
           >
             {loading ? 'جاري التحقق...' : 'دخول'}
           </button>
         </form>
-        
-        <div className="mt-6 text-center text-xs text-gray-500">
-             إذا كنت تواجه مشاكل في الدخول، يرجى مراجعة إدارة المركز.
-        </div>
       </div>
     </div>
   );

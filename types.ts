@@ -1,14 +1,10 @@
-export enum UserRole {
-  ADMIN = 'admin',
-  RECEPTIONIST = 'receptionist', // Acts as Employee/Staff
-  DOCTOR = 'doctor',
-  PATIENT = 'patient' // Implicit for non-logged in (Client)
-}
+export type UserRole = 'admin' | 'employee' | 'patient';
 
 export interface UserProfile {
   id: string; // uuid from auth.users
   email: string;
   role: UserRole;
+  authority: string; // 'user', 'super_user', etc.
   full_name?: string;
   created_at?: string;
 }

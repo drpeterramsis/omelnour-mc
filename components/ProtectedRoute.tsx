@@ -30,8 +30,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
             .single();
 
         // If no profile found, assume minimal access or handle specifically. 
-        // Here we default to RECEPTIONIST if not found for demo continuity
-        const userRole = profile?.role || UserRole.RECEPTIONIST;
+        // Here we default to 'patient' if not found for demo continuity
+        const userRole = profile?.role || 'patient';
 
         if (allowedRoles.includes(userRole as UserRole)) {
             setAuthorized(true);

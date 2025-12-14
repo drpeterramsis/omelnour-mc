@@ -13,10 +13,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [enableSignup, setEnableSignup] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
-    // Check Auth State
+    // 1. Check Auth & Profile
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
@@ -29,15 +28,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         if (data) {
             setProfile(data as UserProfile);
         } else {
-            // Default Fallback
-            setProfile({ id: session.user.id, email: session.user.email!, role: UserRole.PATIENT });
+            // Fallback if profile trigger hasn't fired yet (rare)
+            setProfile({ 
+                id: session.user.id, 
+                email: session.user.email!, 
+                role: 'patient', 
+                authority: 'user' 
+            });
         }
       } else {
         setProfile(null);
       }
     };
 
-    // Check App Config for Signup visibility
+    // 2. Check Public Config
     const checkConfig = async () => {
         const { data } = await supabase.from('app_config').select('enable_client_signup').single();
         if (data) {
@@ -48,33 +52,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     checkUser();
     checkConfig();
 
-    // Listen for Auth Changes
+    // 3. Listen for changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session) {
-             const { data } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
+             const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
              if (data) setProfile(data as UserProfile);
         } else {
             setProfile(null);
         }
     });
     
-    // Subscribe to Config Changes (Optional, but nice for real-time updates)
-    const configSub = supabase
-      .channel('public:app_config')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_config' }, (payload) => {
-         if (payload.new) {
-             setEnableSignup((payload.new as any).enable_client_signup);
-         }
-      })
-      .subscribe();
-
     return () => {
       authListener.subscription.unsubscribe();
-      supabase.removeChannel(configSub);
     };
   }, []);
 
@@ -83,6 +72,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     setProfile(null);
     navigate('/');
   };
+
+  const isStaff = profile?.role === 'admin' || profile?.role === 'employee';
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -116,24 +107,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
               {profile && (
                 <>
-                  {(profile.role === UserRole.ADMIN || profile.role === UserRole.RECEPTIONIST) && (
+                  {isStaff && (
                      <Link to="/schedule-manager" className="hover:bg-medical-redHover px-3 py-1 rounded transition">
                        إدارة الجداول
                      </Link>
                   )}
-                  {profile.role === UserRole.ADMIN && (
+                  {profile.role === 'admin' && (
                     <Link to="/admin" className="hover:bg-medical-redHover px-3 py-1 rounded transition">
                       لوحة التحكم
                     </Link>
                   )}
-                  {/* Patient Menu Items could go here in future */}
                   
                   <div className="flex items-center space-x-4 space-x-reverse border-r border-red-800 pr-4 mr-4">
                      <span className="text-sm text-red-100 flex items-center">
                         <User className="w-4 h-4 ml-1" />
-                        {profile.role === UserRole.ADMIN ? 'مدير' : 
-                         profile.role === UserRole.DOCTOR ? 'طبيب' : 
-                         profile.role === UserRole.RECEPTIONIST ? 'استقبال' : 'مريض'}
+                        {profile.role === 'admin' ? 'Admin' : 
+                         profile.role === 'employee' ? 'Staff' : 'مريض'}
                      </span>
                      <button onClick={handleLogout} className="text-red-200 hover:text-white p-2">
                         <LogOut className="w-5 h-5" />
@@ -162,13 +151,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Link to="/" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">الرئيسية</Link>
               {profile && (
                 <>
-                    {(profile.role === UserRole.ADMIN || profile.role === UserRole.RECEPTIONIST) && (
+                    {isStaff && (
                         <Link to="/schedule-manager" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">إدارة الجداول</Link>
                     )}
-                    {profile.role === UserRole.ADMIN && (
+                    {profile.role === 'admin' && (
                         <Link to="/admin" className="block px-3 py-2 rounded-md text-base font-medium hover:bg-medical-redHover">لوحة التحكم</Link>
                     )}
-                    <button onClick={handleLogout} className="w-full text-right block px-3 py-2 rounded-md text-base font-medium text-red-200 hover:text-white hover:bg-medical-redHover">تسجيل خروج ({profile.role})</button>
+                    <button onClick={handleLogout} className="w-full text-right block px-3 py-2 rounded-md text-base font-medium text-red-200 hover:text-white hover:bg-medical-redHover">تسجيل خروج</button>
                 </>
               )}
                {!profile && (
@@ -194,7 +183,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       <footer className="bg-[#36454F] text-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-sm">
-             &copy; {new Date().getFullYear()} Clinica i-Mind | Dr. Peter Ramsis | v1.0.015
+             &copy; {new Date().getFullYear()} Clinica i-Mind | Dr. Peter Ramsis | v1.1.0 (Admin Upgrade)
         </div>
       </footer>
     </div>

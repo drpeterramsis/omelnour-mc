@@ -37,11 +37,21 @@ const ScheduleManager: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
-    const { data: d } = await supabase.from('doctors').select('*');
-    const { data: s } = await supabase.from('schedules').select('*');
-    if (d) setDoctors(d);
-    if (s) setSchedules(s);
-    setLoading(false);
+    try {
+        const { data: d, error: dError } = await supabase.from('doctors').select('*');
+        const { data: s, error: sError } = await supabase.from('schedules').select('*');
+        
+        if (dError) throw new Error(`Doctors fetch error: ${dError.message}`);
+        if (sError) throw new Error(`Schedules fetch error: ${sError.message}`);
+
+        if (d) setDoctors(d);
+        if (s) setSchedules(s);
+    } catch (err: any) {
+        console.error("Fetch error:", err);
+        // We can add a toast notification here in a real app
+    } finally {
+        setLoading(false);
+    }
   };
 
   useEffect(() => {
